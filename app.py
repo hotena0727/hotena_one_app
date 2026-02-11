@@ -2466,12 +2466,13 @@ for idx, q in enumerate(st.session_state.quiz):
 
     st.markdown(
         f"""
-<div class="jp" style="display:flex; align-items:flex-start; gap:10px; margin: 10px 0 8px 0;">
+<div class="jp" style="display:flex; align-items:baseline; gap:7px; margin: 10px 0 8px 0;">
   <div style="
     flex:0 0 auto;
     font-size:20px;
     line-height:1;
-    margin-top:2px;
+    /* ✅ 미세 보정 (필요 시 숫자만 조절) */
+    transform: translateY(1px);
   ">{badge}</div>
 
   <div style="
@@ -2482,9 +2483,8 @@ for idx, q in enumerate(st.session_state.quiz):
   ">{q["prompt"]}</div>
 </div>
 """,
-        unsafe_allow_html=True
-    )
-
+    unsafe_allow_html=True
+)
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
 
     prev = st.session_state.answers[idx]
