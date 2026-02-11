@@ -7,16 +7,9 @@
 # - 맞힌 단어 제외(정복) + 초기화
 # - 사운드 토글 + 테스트 재생 + 제출 후 1회 SFX
 #
-# ✅ CSV (data/words_beginner.csv) 필수 컬럼:
-#   pos, jp_word, reading, meaning
-#   (선택) example_jp, example_kr
-#
-# ✅ Supabase:
-# - secrets: SUPABASE_URL, SUPABASE_ANON_KEY, COOKIE_PASSWORD
-# - tables: profiles(id, email, is_admin, progress)
-# - table:  quiz_attempts(user_id, user_email, level, pos_mode, quiz_len, score, wrong_count, wrong_list, created_at)
-# - rpc:    mark_attendance_kst (선택)
-# - rpc:    record_word_results_bulk (선택)
+# ✅ CSV (data/words_beginner.csv) 필수 컬럼(최종):
+#   level, pos, jp_word, reading, meaning, example_jp, example_kr
+#   - 문제는 jp_word(한자 포함 단어)에서 뽑음
 # ============================================================
 
 from __future__ import annotations
@@ -607,8 +600,6 @@ def to_kst_naive(x):
 
 # ============================================================
 # ✅ DB functions (기존 테이블 구조 그대로 활용)
-#    - quiz_attempts.level 에 "pos"를 저장 (테이블 변경 없이)
-#    - quiz_attempts.pos_mode 에 "quiz_type" 저장
 # ============================================================
 def delete_all_learning_records(sb_authed, user_id):
     sb_authed.table("quiz_attempts").delete().eq("user_id", user_id).execute()
@@ -624,7 +615,6 @@ def ensure_profile(sb_authed, user):
         pass
 
 def mark_attendance_once(sb_authed):
-    # ✅ RPC가 없으면 조용히 패스
     if st.session_state.get("attendance_checked"):
         return None
     try:
@@ -639,8 +629,8 @@ def save_attempt_to_db(sb_authed, user_id, user_email, pos, quiz_type, quiz_len,
     payload = {
         "user_id": user_id,
         "user_email": user_email,
-        "level": str(pos),         # ✅ level 컬럼에 pos 저장
-        "pos_mode": str(quiz_type),# ✅ pos_mode 컬럼에 유형 저장
+        "level": str(pos),          # ✅ level 컬럼에 pos 저장
+        "pos_mode": str(quiz_type), # ✅ pos_mode 컬럼에 유형 저장
         "quiz_len": int(quiz_len),
         "score": int(score),
         "wrong_count": int(len(wrong_list)),
@@ -677,10 +667,6 @@ def fetch_is_admin_from_db(sb_authed, user_id):
     return False
 
 def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: str, pos: str) -> list[dict]:
-    """
-    ✅ RPC record_word_results_bulk 용 payload
-    (RPC/테이블이 없으면 저장 실패해도 앱은 계속 진행)
-    """
     items = []
     for idx, q in enumerate(quiz):
         word_key = (str(q.get("jp_word", "")).strip() or str(q.get("reading", "")).strip())
@@ -692,7 +678,7 @@ def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: 
         items.append(
             {
                 "word_key": word_key,
-                "level": "BEGINNER",         # ✅ 고정값(원테이블 변경 없이)
+                "level": "BEGINNER",
                 "pos": str(pos),
                 "quiz_type": str(quiz_type),
                 "is_correct": bool(is_correct),
@@ -1132,7 +1118,7 @@ def render_topcard():
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
-# ✅ CSV Load Pool
+# ✅ CSV Load Pool  (✅ CSV 최종 스펙 반영)
 # ============================================================
 READ_KW = dict(
     dtype=str,
@@ -1144,7 +1130,8 @@ READ_KW = dict(
 def load_pool(csv_path_str: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path_str, **READ_KW)
 
-    required_cols = {"level", "jp_word", "display_jp", "reading", "meaning", "pos"}
+    # ✅ CSV 최종 필수 컬럼
+    required_cols = {"level", "pos", "jp_word", "reading", "meaning", "example_jp", "example_kr"}
     missing = required_cols - set(df.columns)
     if missing:
         raise ValueError(f"CSV 필수 컬럼 누락: {sorted(list(missing))}")
@@ -1152,27 +1139,22 @@ def load_pool(csv_path_str: str) -> pd.DataFrame:
     def _nfkc(s):
         return unicodedata.normalize("NFKC", str(s or "")).strip()
 
+    df["level"] = df["level"].apply(_nfkc).str.upper().str.strip()
     df["pos"] = df["pos"].apply(_nfkc).str.lower().str.strip()
     df["jp_word"] = df["jp_word"].apply(_nfkc).str.strip()
     df["reading"] = df["reading"].apply(_nfkc).str.strip()
     df["meaning"] = df["meaning"].apply(_nfkc).str.strip()
-    df["display_jp"] = df["display_jp"].astype(str).str.strip()
-
-    # 선택 컬럼
-    if "example_jp" in df.columns:
-        df["example_jp"] = df["example_jp"].apply(_nfkc).str.strip()
-    else:
-        df["example_jp"] = ""
-
-    if "example_kr" in df.columns:
-        df["example_kr"] = df["example_kr"].apply(_nfkc).str.strip()
-    else:
-        df["example_kr"] = ""
+    df["example_jp"] = df["example_jp"].apply(_nfkc).str.strip()
+    df["example_kr"] = df["example_kr"].apply(_nfkc).str.strip()
 
     # 빈 줄 제거
-    df = df[(df["pos"] != "") & (df["jp_word"] != "") & (df["reading"] != "") & (df["meaning"] != "")].copy()
+    df = df[
+        (df["pos"] != "") &
+        (df["jp_word"] != "") &
+        (df["reading"] != "") &
+        (df["meaning"] != "")
+    ].copy()
 
-    # pos 정리(모르는 pos는 그대로 두되, 버튼 옵션과 안 맞으면 풀터가 0개가 될 수 있음)
     return df.reset_index(drop=True)
 
 def ensure_pool_ready():
@@ -1226,10 +1208,6 @@ def _last_char(x) -> str:
     return s[-1] if s else ""
 
 def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
-    """
-    ✅ 발음 오답: 왕초보 앱은 '너무 쉬운 힌트'를 줄이되,
-    부족하면 무조건 랜덤으로라도 채워서 멈추지 않게.
-    """
     def _suffix(x: str, n: int) -> str:
         s = _to_hira(_nfkc_str(x))
         return s[-n:] if len(s) >= n else s
@@ -1239,7 +1217,6 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
     if len(cands) < k:
         return []
 
-    # 동사/형용사는 끝글자 힌트 방지(가볍게)
     strict_pos = {"verb", "adj_i", "adj_na"}
 
     s1 = _suffix(correct_nf, 1)
@@ -1248,13 +1225,10 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
     if pos in strict_pos:
         same2 = [c for c in cands if _suffix(c, 2) == s2]
         same1 = [c for c in cands if _suffix(c, 1) == s1]
-
-        # 가능하면 같은 꼬리(헷갈리게), 부족하면 랜덤
         pool = _uniq(same2 + same1 + cands)
         if len(pool) >= k:
             return random.sample(pool, k)
 
-    # 그 외 품사는 '마지막 글자 분산' 우선
     base = cands[:]
     random.shuffle(base)
     wrongs, seen_last = [], set()
@@ -1274,7 +1248,8 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
     return wrongs
 
 def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
-    jp = str(row.get("display_jp", "")).strip()
+    # ✅ jp_word가 "표시용 단어"이자 "출제 단어"
+    jp = str(row.get("jp_word", "")).strip()
     rd = str(row.get("reading", "")).strip()
     mn = str(row.get("meaning", "")).strip()
     pos = str(row.get("pos", "")).strip().lower()
@@ -1292,7 +1267,6 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
         )
         wrongs = _pick_reading_wrongs(candidates, correct, pos=pos, jp_word=jp, k=3)
         if len(wrongs) < 3:
-            # 최후: 그냥 랜덤
             c2 = _uniq([str(x).strip() for x in candidates if str(x).strip()])
             if len(c2) < 3:
                 st.error(f"오답 후보 부족(발음): pos={pos}, 후보={len(c2)}개")
@@ -1313,9 +1287,9 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
 
     elif qtype == "kr2jp":
         prompt = f"'{mn}'의 일본어는?"
-        correct = jp  # display_jp
+        correct = jp  # ✅ jp_word
         candidates = (
-            pool_pos.loc[pool_pos["display_jp"] != correct, "display_jp"]
+            pool_pos.loc[pool_pos["jp_word"] != correct, "jp_word"]
             .dropna().astype(str).str.strip().tolist()
         )
         candidates = [x for x in dict.fromkeys(candidates) if x]
@@ -1399,7 +1373,10 @@ def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos: str) -> list:
         st.warning("현재 오답 노트가 비어 있어요. 🙂")
         return []
 
-    retry_df = pool[(pool["pos"].astype(str).str.strip().str.lower() == str(pos).lower().strip()) & (pool["jp_word"].isin(wrong_words))].copy()
+    retry_df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower() == str(pos).lower().strip())
+        & (pool["jp_word"].isin(wrong_words))
+    ].copy()
     if len(retry_df) == 0:
         st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
         st.stop()
@@ -1467,7 +1444,6 @@ def render_my_dashboard():
         st.warning("세션 토큰이 없습니다. 다시 로그인해 주세요.")
         return
 
-    # 🗑️ 전체 초기화
     with st.expander("🗑️ 전체 학습 기록 완전 초기화", expanded=False):
         st.warning("이 작업은 되돌릴 수 없습니다.\n(최근 기록 / 오답 TOP10 / 진행중 복원까지 모두 초기화됩니다.)")
         agree = st.checkbox("초기화에 동의합니다.", key="chk_reset_all_agree")
@@ -1500,7 +1476,6 @@ def render_my_dashboard():
                 st.error("초기화 실패: RLS 정책(삭제 권한) 또는 테이블/컬럼 확인이 필요합니다.")
                 st.exception(e)
 
-    # 최근 기록
     try:
         res = run_db(lambda: fetch_recent_attempts(sb_authed_local, user_id_local, limit=50))
     except Exception as e:
@@ -1760,7 +1735,6 @@ try:
 except Exception:
     available_types = QUIZ_TYPES_USER
 
-# progress 자동복원: ON(왕초보 앱은 루틴이 핵심이니 복원 추천)
 if sb_authed is not None and not st.session_state.get("progress_restored"):
     try:
         restore_progress_from_db(sb_authed, user_id)
@@ -1768,7 +1742,6 @@ if sb_authed is not None and not st.session_state.get("progress_restored"):
         pass
     st.session_state.progress_restored = True
 
-# title (home 제외)
 if st.session_state.get("page") != "home":
     u = st.session_state.get("user")
     email = (getattr(u, "email", None) if u else None) or st.session_state.get("login_email", "")
@@ -1782,7 +1755,6 @@ if st.session_state.get("page") != "home":
         unsafe_allow_html=True,
     )
 
-# 프로필/출석 (있으면 반영)
 if sb_authed is not None:
     ensure_profile(sb_authed, user)
     att = mark_attendance_once(sb_authed)
@@ -1819,7 +1791,6 @@ if st.session_state.page == "my":
 render_topcard()
 render_sound_toggle()
 
-# 출석 배지 (있으면)
 streak = st.session_state.get("streak_count")
 did_today = st.session_state.get("did_attend_today")
 if streak is not None:
@@ -1832,7 +1803,6 @@ if streak is not None:
     elif streak >= 7:
         st.info("🏅 7일 연속 달성!")
 
-# 오늘의 목표
 if "today_goal" not in st.session_state:
     st.session_state.today_goal = "오늘은 10문항 1회 완주"
 if "today_goal_done" not in st.session_state:
@@ -1857,7 +1827,6 @@ with st.container():
 
 st.divider()
 
-# 세션 초기화
 if "quiz_version" not in st.session_state:
     st.session_state.quiz_version = 0
 if "submitted" not in st.session_state:
@@ -1910,7 +1879,6 @@ def on_pick_qtype(qt: str):
 
 st.markdown('<div class="qtypewrap">', unsafe_allow_html=True)
 
-# 1) 품사 버튼 (4열 배치)
 pos_cols = st.columns(4, gap="small")
 for i, ps in enumerate(POS_OPTIONS):
     with pos_cols[i % 4]:
@@ -1926,7 +1894,6 @@ for i, ps in enumerate(POS_OPTIONS):
 
 st.markdown('<div class="qtype_hint jp">✨품사를 선택하세요</div>', unsafe_allow_html=True)
 
-# 2) 유형 버튼
 type_cols = st.columns(len(available_types), gap="small")
 for i, qt in enumerate(available_types):
     with type_cols[i]:
@@ -1981,7 +1948,6 @@ with cbtn2:
         st.session_state["_scroll_top_once"] = True
         st.rerun()
 
-# 정복 안내
 k_now = mastery_key()
 if st.session_state.get("mastery_done", {}).get(k_now, False):
     st.success("🏆 이 품사/유형을 완전히 정복했어요!")
@@ -2003,12 +1969,10 @@ if len(st.session_state.quiz) == 0:
     st.info("이 품사에 출제할 단어가 없어요. CSV의 pos 값을 확인해 주세요.")
     st.stop()
 
-# answers 길이 맞춤
 quiz_len = len(st.session_state.quiz)
 if "answers" not in st.session_state or not isinstance(st.session_state.answers, list) or len(st.session_state.answers) != quiz_len:
     st.session_state.answers = [None] * quiz_len
 
-# 정복 상태면 문제 영역 차단
 if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
     st.stop()
 
@@ -2096,7 +2060,6 @@ if st.session_state.submitted:
     st.success(f"점수: {score} / {quiz_len}")
     ratio = score / quiz_len if quiz_len else 0
 
-    # SFX (제출 직후 1회)
     if ratio == 1:
         sfx("perfect")
     else:
@@ -2110,7 +2073,6 @@ if st.session_state.submitted:
     else:
         st.warning("💪 괜찮아요! 틀린 문제는 성장의 재료예요. 다시 한 번 도전해봐요.")
 
-    # ✅ DB 저장
     sb_authed_local = get_authed_sb()
     if sb_authed_local is None:
         if show_post_ui:
@@ -2122,7 +2084,7 @@ if st.session_state.submitted:
                     sb_authed=sb_authed_local,
                     user_id=user_id,
                     user_email=user_email,
-                    pos=current_pos,                 # ✅ level 컬럼에 저장됨
+                    pos=current_pos,
                     quiz_type=current_type,
                     quiz_len=quiz_len,
                     score=score,
@@ -2134,7 +2096,6 @@ if st.session_state.submitted:
                     st.warning("DB 저장에 실패했습니다. (테이블/컬럼/권한/RLS 정책 확인 필요)")
                     st.write(str(e))
 
-        # ✅ 단어 통계 bulk 저장 (RPC 있으면 저장, 없으면 무시)
         if not st.session_state.stats_saved_this_attempt:
             try:
                 sync_answers_from_widgets()
@@ -2152,7 +2113,6 @@ if st.session_state.submitted:
                     st.error("❌ 단어 통계(bulk) 저장 실패 (RPC/정책 확인)")
                     st.exception(e)
 
-        # ✅ progress 저장(제출 후에도 한번 저장)
         try:
             save_progress_to_db(sb_authed_local, user_id)
         except Exception:
@@ -2251,7 +2211,6 @@ if st.session_state.submitted:
             st.session_state["_scroll_top_once"] = True
             st.rerun()
 
-    # 다음 10문항
     if st.button("✅ 다음 10문항 시작하기", type="primary", use_container_width=True, key="btn_next_10"):
         clear_question_widget_keys()
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
@@ -2259,7 +2218,6 @@ if st.session_state.submitted:
         st.session_state["_scroll_top_once"] = True
         st.rerun()
 
-    # 네이버톡 배너(설정이 Y면 노출)
     show_naver_talk = (SHOW_NAVER_TALK == "Y") or is_admin()
     if show_naver_talk:
         render_naver_talk()
