@@ -19,7 +19,7 @@ st.set_page_config(page_title="왕초보 탈출 마법의 단어장", layout="ce
 # Constants
 # ----------------------------
 BASE_DIR = Path(__file__).resolve().parent
-CSV_PATH = BASE_DIR / "data" / "왕초보_탈출_마법의_단어장_완성본_300_대표한자후보_confidence.csv"  # 선우님 파일명에 맞게 수정 가능
+CSV_PATH = BASE_DIR / "data" / "one.csv"  # 선우님 파일명에 맞게 수정 가능
 N = 10
 
 LEVELS = ["N5", "N4", "N3", "N2", "N1"]
