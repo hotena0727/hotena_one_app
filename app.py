@@ -2286,6 +2286,8 @@ if st.session_state.get("quiz_type") not in available_types:
 
 st.markdown('<div class="qtypewrap">', unsafe_allow_html=True)
 
+st.markdown('<div class="qtype_hint jp">✨품사를 선택하세요</div>', unsafe_allow_html=True)
+
 # ✅ 품사 그룹 버튼(5개)
 pos_cols = st.columns(5, gap="small")
 for i, ps in enumerate(POS_GROUP_OPTIONS):
@@ -2299,8 +2301,6 @@ for i, ps in enumerate(POS_GROUP_OPTIONS):
             on_click=on_pick_pos_group,
             args=(ps,),
         )
-
-st.markdown('<div class="qtype_hint jp">✨품사를 선택하세요</div>', unsafe_allow_html=True)
 
 # ✅ B안: 기타 선택 시에만 세부 선택 expander + 적용 버튼
 if st.session_state.pos_group == "other":
@@ -2326,6 +2326,8 @@ if st.session_state.pos_group == "other":
             st.session_state["_scroll_top_once"] = True
             st.rerun()
 
+st.markdown('<div class="qtype_hint jp">✨유형을 선택하세요</div>', unsafe_allow_html=True)
+
 # ✅ 유형 버튼
 type_cols = st.columns(len(available_types), gap="small")
 for i, qt in enumerate(available_types):
@@ -2340,7 +2342,6 @@ for i, qt in enumerate(available_types):
             args=(qt,),
         )
 
-st.markdown('<div class="qtype_hint jp">✨유형을 선택하세요</div>', unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ✅ 필수패턴(카드)
