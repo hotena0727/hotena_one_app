@@ -47,8 +47,7 @@ st.set_page_config(page_title="왕초보 탈출 하테나일본어", layout="cen
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "words_beginner.csv"   # ✅ 왕초보 단어 CSV
-PATTERN_CSV_PATH = BASE_DIR / "data" / "required_patterns1.csv"  # ✅ 필수패턴 CSV
-APP_URL = "https://hotenaoneapp-cvztfxksphaafkgrftpx9f.streamlit.app/"      # ✅ 이메일 인증 redirect용 (스트림릿 앱 주소로 교체)
+APP_URL = "https://YOUR_STREAMLIT_APP_URL_HERE/"      # ✅ 이메일 인증 redirect용 (스트림릿 앱 주소로 교체)
 
 # ============================================================
 # ✅ App Settings
@@ -1307,160 +1306,6 @@ def ensure_pool_ready():
             st.write("CSV_PATH =", str(CSV_PATH))
 
 # ============================================================
-# ✅ Required Patterns (CSV)
-# ============================================================
-PATTERN_READ_KW = dict(
-    dtype=str,
-    keep_default_na=False,
-    na_values=["nan", "NaN", "NULL", "null", "None", "none"],
-)
-
-@st.cache_data(show_spinner=False)
-def load_required_patterns(csv_path_str: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_path_str, **PATTERN_READ_KW)
-
-    required_cols = {"pos", "jp", "kr"}
-    missing = required_cols - set(df.columns)
-    if missing:
-        raise ValueError(f"필수패턴 CSV 필수 컬럼 누락: {sorted(list(missing))}")
-
-    def _nfkc(s):
-        return unicodedata.normalize("NFKC", str(s or "")).strip()
-
-    # 표준화
-    df["pos"] = df["pos"].apply(_nfkc).str.lower().str.strip()
-    df["jp"] = df["jp"].apply(_nfkc).str.strip()
-    df["kr"] = df["kr"].apply(_nfkc).str.strip()
-
-    # 선택 컬럼 (없어도 OK)
-    if "title" in df.columns:
-        df["title"] = df["title"].apply(_nfkc).str.strip()
-    else:
-        df["title"] = ""
-
-    if "example_jp" in df.columns:
-        df["example_jp"] = df["example_jp"].apply(_nfkc).str.strip()
-    else:
-        df["example_jp"] = ""
-
-    if "example_kr" in df.columns:
-        df["example_kr"] = df["example_kr"].apply(_nfkc).str.strip()
-    else:
-        df["example_kr"] = ""
-
-    # 빈 줄 제거
-    df = df[(df["pos"] != "") & (df["jp"] != "") & (df["kr"] != "")].copy()
-    return df.reset_index(drop=True)
-
-def render_required_patterns_bottom(pos: str, n_show: int = 10):
-    """퀴즈 페이지 하단에 '필수 패턴'을 접었다 펼치기 형태로 노출"""
-    try:
-        pdf = load_required_patterns(str(PATTERN_CSV_PATH))
-    except Exception as e:
-        # 운영 중에는 조용히 숨기는 게 UX 좋음 (관리자면 표시)
-        if is_admin():
-            st.warning(f"필수패턴 로드 실패: {e}")
-        return
-
-    pos = str(pos).strip().lower()
-    sub = pdf[pdf["pos"] == pos].copy()
-    if sub.empty:
-        # pos별 데이터가 없으면 그냥 숨김
-        return
-
-    # 30개 중 일부만 랜덤으로 보여주기 (너무 길어지지 않게)
-    n_show = max(3, int(n_show))
-    if len(sub) > n_show:
-        sub = sub.sample(n=n_show, replace=False).reset_index(drop=True)
-    else:
-        sub = sub.reset_index(drop=True)
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-    with st.expander("⭐ 필수 패턴 (오늘 이 품사에서 자주 쓰는 말)", expanded=False):
-        st.caption("퀴즈는 짧게, 패턴은 아래에서 천천히 익히면 속도가 빨라집니다.")
-
-        st.markdown(
-            """
-<style>
-.rp-card{
-  border:1px solid rgba(120,120,120,0.22);
-  border-radius:16px;
-  padding:14px 14px;
-  margin:10px 0;
-  background: rgba(255,255,255,0.02);
-}
-.rp-title{
-  font-weight:900;
-  font-size:14px;
-  opacity:.80;
-  margin-bottom:6px;
-}
-.rp-jp{
-  font-weight:900;
-  font-size:20px;
-  line-height:1.25;
-}
-.rp-kr{
-  margin-top:6px;
-  font-size:13px;
-  opacity:.85;
-  line-height:1.5;
-}
-.rp-ex{
-  margin-top:10px;
-  padding-top:10px;
-  border-top:1px dashed rgba(120,120,120,0.18);
-  font-size:13px;
-  opacity:.90;
-  line-height:1.5;
-}
-.rp-ex small{
-  display:block;
-  opacity:.75;
-  margin-top:4px;
-}
-</style>
-""",
-            unsafe_allow_html=True,
-        )
-
-        for _, r in sub.iterrows():
-            title = str(r.get("title", "")).strip()
-            jp = str(r.get("jp", "")).strip()
-            kr = str(r.get("kr", "")).strip()
-            ex_jp = str(r.get("example_jp", "")).strip()
-            ex_kr = str(r.get("example_kr", "")).strip()
-
-            title_html = f"<div class='rp-title'>{title}</div>" if title else ""
-            ex_html = ""
-            if ex_jp or ex_kr:
-                ex_html = f"""
-<div class="rp-ex">
-  <div><b>예문</b> {ex_jp}</div>
-  <small>{ex_kr}</small>
-</div>
-"""
-
-            st.markdown(
-                f"""
-<div class="jp">
-  <div class="rp-card">
-    {title_html}
-    <div class="rp-jp">{jp}</div>
-    <div class="rp-kr">{kr}</div>
-    {ex_html}
-  </div>
-</div>
-""",
-                unsafe_allow_html=True,
-            )
-
-        # 버튼: 다시 추천(새로 섞기)
-        if st.button("🔄 패턴 다시 추천", use_container_width=True, key=f"btn_rp_shuffle_{pos}"):
-            st.session_state["_scroll_top_once"] = False  # 굳이 위로 올릴 필요 없음
-            st.rerun()
-
-# ============================================================
 # ✅ Quiz Logic
 # ============================================================
 def _nfkc_str(x) -> str:
@@ -2321,9 +2166,6 @@ for i, qt in enumerate(available_types):
 st.markdown('<div class="qtype_hint jp">✨유형을 선택하세요</div>', unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
 
-render_required_pattern_card()
-
-
 # ✅ 필수패턴(카드)
 with st.expander("📌 필수패턴 (카드로 빠르게 익히기)", expanded=False):
     render_pattern_cards()
@@ -2645,8 +2487,6 @@ if st.session_state.submitted:
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
-
-    render_required_patterns_bottom(st.session_state.pos, n_show=10)
 
     show_naver_talk = (SHOW_NAVER_TALK == "Y") or is_admin()
     if show_naver_talk:
