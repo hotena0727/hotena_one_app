@@ -214,6 +214,23 @@ st.markdown(
   letter-spacing:.2px;
 }
 
+/* 메인 컨테이너 위쪽 여백 줄이기 */
+div[data-testid="stAppViewContainer"] .block-container{
+  padding-top: 1.0rem !important;   /* 0.5~1.5rem 사이로 취향 조절 */
+}
+
+/* Streamlit 상단 헤더(투명 영역 포함) 자체를 더 얇게 */
+header[data-testid="stHeader"]{
+  height: 0rem !important;
+}
+
+/* (선택) 우측 상단 Streamlit 기본 툴바 영역 숨김 */
+div[data-testid="stToolbar"]{
+  visibility: hidden !important;
+  height: 0 !important;
+}
+
+
 /* 헤더 여백 */
 div[data-testid="stMarkdownContainer"] h2,
 div[data-testid="stMarkdownContainer"] h3,
