@@ -2535,7 +2535,7 @@ if st.session_state.submitted:
     if ratio == 1:
         sfx("perfect")
     elif ratio >= 0.7:
-        sfx("correct")
+        sfx("wrong")
     else:
         sfx("wrong")
 
