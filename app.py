@@ -2584,21 +2584,21 @@ if st.session_state.submitted:
             return "" if v is None else str(v)
 
         for w in st.session_state.wrong_list:
-            no = _s(w.get("No"))
-            qtext = _s(w.get("문제"))
-            picked = _s(w.get("내 답"))
-            correct = _s(w.get("정답"))
-            word = _s(w.get("단어"))
-            reading = _s(w.get("읽기"))
-            meaning = _s(w.get("뜻"))
-            mode = quiz_label_map.get(w.get("유형"), w.get("유형", ""))
-            pos_label = POS_LABEL_MAP.get(w.get("품사"), w.get("품사", ""))
+        no = _s(w.get("No"))
+        qtext = _s(w.get("문제"))
+        picked = _s(w.get("내 답"))
+        correct = _s(w.get("정답"))
+        word = _s(w.get("단어"))
+        reading = _s(w.get("읽기"))
+        meaning = _s(w.get("뜻"))
+        mode = quiz_label_map.get(w.get("유형"), w.get("유형", ""))
+        pos_label = POS_LABEL_MAP.get(w.get("품사"), w.get("품사", ""))
 
-            card_html = f"""
+        card_html = f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
-      <div>
+      <div style="min-width:0;">
         <div class="wrong-title">Q{no}. {word}</div>
         <div class="wrong-sub">{qtext} · 품사: {pos_label} · 유형: {mode}</div>
       </div>
@@ -2612,7 +2612,7 @@ if st.session_state.submitted:
   </div>
 </div>
 """
-            components.html(card_html, height=190)
+    st.markdown(card_html, unsafe_allow_html=True)
 
         if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_bottom"):
             clear_question_widget_keys()
