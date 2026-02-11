@@ -40,6 +40,7 @@ import time
 import traceback
 import base64
 import textwrap 
+import re  
 
 # ============================================================
 # ✅ Page Config + Paths
@@ -98,9 +99,11 @@ quiz_label_map = {
     "reading": "발음",
     "meaning": "뜻",
     "kr2jp": "한→일",
+    "sentence": "예문",
 }
-QUIZ_TYPES_USER = ["reading", "meaning", "kr2jp"]
-QUIZ_TYPES_ADMIN = ["reading", "meaning", "kr2jp"]  # 필요시 관리자 전용 유형 추가 가능
+
+QUIZ_TYPES_USER = ["reading", "meaning", "kr2jp", "sentence"]
+QUIZ_TYPES_ADMIN = ["reading", "meaning", "kr2jp", "sentence"] # 필요시 관리자 전용 유형 추가 가능
 
 # ✅ 요청 반영: 기타(adv/particle/conj/interj)에서는 발음(reading) 숨김 → 그룹 단위로 other만 제한
 POS_ONLY_2TYPES = {"other"}
@@ -949,7 +952,7 @@ def get_available_quiz_types_for_pos(pos_group: str) -> list[str]:
     pos_group = str(pos_group).strip().lower()
     base = get_available_quiz_types()
     if pos_group in POS_ONLY_2TYPES:
-        return [t for t in base if t in ("meaning", "kr2jp")]
+        return [t for t in base if t in ("meaning", "kr2jp", "sentence")]  # ✅ sentence 추가
     return base
 
 # ============================================================
@@ -1432,6 +1435,29 @@ def _has_kanji(s: str) -> bool:
             return True
     return False
 
+def _blank_in_example(example_jp: str, jp_word: str, reading: str = "") -> str:
+    """
+    example_jp 안에서 jp_word(또는 reading)가 등장하면 1번만 ＿＿＿ 로 치환.
+    없으면 문장 앞에 '＿＿＿'를 붙이는 fallback.
+    """
+    ex = _nfkc_str(example_jp)
+    w = _nfkc_str(jp_word)
+    r = _nfkc_str(reading)
+
+    if not ex:
+        return ""
+
+    # 1) jp_word로 1회 치환 (정확 매칭 우선)
+    if w and w in ex:
+        return ex.replace(w, "＿＿＿", 1)
+
+    # 2) reading(히라가나)가 들어있으면 그것으로 치환 (히라가나 형태로 많이 들어오는 CSV 대비)
+    if r and r in ex:
+        return ex.replace(r, "＿＿＿", 1)
+
+    # 3) 실패하면 fallback: 문장 앞에 빈칸을 붙임 (최후의 안전장치)
+    return "＿＿＿ " + ex
+
 def _to_hira(s: str) -> str:
     s = _nfkc_str(s)
     out = []
@@ -1597,6 +1623,34 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
             st.stop()
         wrongs = random.sample(candidates, 3)
 
+
+    elif qtype == "sentence":
+        # ✅ 예문이 있는 단어만 대상으로
+        if not ex_jp:
+            # (이 row는 예문 문제가 불가능) -> 안전하게 다른 유형처럼 후보 부족 처리
+            st.error(f"예문이 비어 있습니다: jp_word={jp}")
+            st.stop()
+
+        prompt_sentence = _blank_in_example(ex_jp, jp, rd)
+        prompt = f"빈칸에 들어갈 단어는?"
+
+        # 정답은 '단어(jp_word)' 자체
+        correct = jp
+
+        # 오답 후보: 같은 pos에서 다른 jp_word 3개
+        candidates = (
+            pool_pos.loc[pool_pos["jp_word"].astype(str).str.strip() != correct, "jp_word"]
+            .dropna().astype(str).str.strip().tolist()
+        )
+        candidates = [x for x in dict.fromkeys(candidates) if x]
+        if len(candidates) < 3:
+            st.error(f"오답 후보 부족(예문): pos={pos}, 후보={len(candidates)}개")
+            st.stop()
+        wrongs = random.sample(candidates, 3)
+
+        # prompt에 실제 예문(빈칸 문장)을 넣어준다
+        prompt = f"{prompt_sentence}"
+    
     else:
         raise ValueError(f"Unknown qtype: {qtype}")
 
@@ -2488,6 +2542,17 @@ if st.button("✅ 제출하고 채점하기", disabled=not all_answered, type="p
 
 if not all_answered:
     st.info("모든 문제에 답을 선택하면 제출 버튼이 활성화됩니다.")
+
+
+    if current_type == "sentence":
+        st.markdown("### 📌 예문 복습")
+        for idx, q in enumerate(st.session_state.quiz):
+            st.markdown(f"**Q{idx+1}**")
+            st.markdown(f"- 빈칸 문장: {q.get('prompt','')}")
+            st.markdown(f"- 정답 포함 원문: {q.get('example_jp','')}")
+            st.markdown(f"- 예문 KR: {q.get('example_kr','')}")
+            st.markdown("---")
+
 
 # ============================================================
 # ✅ 제출 후 화면
