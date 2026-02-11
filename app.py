@@ -129,8 +129,8 @@ def render_pattern_cards():
         return
 
     st.markdown("""
-<link rel="icon" href="/app/static/assets/icon-192.png">
-<link rel="apple-touch-icon" href="/app/static/assets/apple-touch-icon.png">
+<link rel="icon" href="/static/assets/icon-192.png">
+<link rel="apple-touch-icon" href="/static/assets/apple-touch-icon.png">
 <meta name="theme-color" content="#0B2A6F">
 <style>
 .pat-card{
