@@ -2457,21 +2457,36 @@ def _esc_html(x) -> str:
              .replace("'", "&#39;"))
 
 # ============================================================
-# ✅ 문제 표시
+# ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
 # ============================================================
+circled_nums = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
+
 for idx, q in enumerate(st.session_state.quiz):
-    prompt = _esc_html(q.get("prompt", ""))
+    badge = circled_nums[idx] if idx < len(circled_nums) else f"({idx+1})"
 
     st.markdown(
         f"""
-<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">
-  <b>Q{idx+1}.</b> {prompt}
+<div class="jp" style="display:flex; align-items:flex-start; gap:10px; margin: 10px 0 8px 0;">
+  <div style="
+    flex:0 0 auto;
+    font-size:20px;
+    line-height:1;
+    margin-top:2px;
+  ">{badge}</div>
+
+  <div style="
+    flex:1 1 auto;
+    font-size:18px;
+    font-weight:800;
+    line-height:1.35;
+  ">{q["prompt"]}</div>
 </div>
 """,
         unsafe_allow_html=True
     )
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
+
     prev = st.session_state.answers[idx]
     default_index = None
     if prev is not None and prev in q["choices"]:
@@ -2486,6 +2501,9 @@ for idx, q in enumerate(st.session_state.quiz):
         on_change=mark_progress_dirty,
     )
     st.session_state.answers[idx] = choice
+
+sync_answers_from_widgets()
+
 
 # ============================================================
 # ✅ 제출/채점
