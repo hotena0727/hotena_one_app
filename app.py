@@ -2520,16 +2520,17 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 for idx, q in enumerate(st.session_state.quiz):
     st.subheader(f"Q{idx+1}")
 
-    # ✅ 문제 텍스트(왼쪽) + 🔊 버튼(오른쪽)
-    cL, cR = st.columns([10, 1], vertical_alignment="center")
-    with cL:
+    cols = st.columns([8, 1], vertical_alignment="center")
+
+    with cols[0]:
         st.markdown(
-            f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+            f'<div class="jp" style="margin-top:-6px; margin-bottom:0px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
             unsafe_allow_html=True
         )
-    with cR:
+        st.caption("발음이 궁금하면 눌러보세요")
+
+    with cols[1]:
         if st.button("🔊", key=f"tts_{st.session_state.quiz_version}_{idx}", help="발음 듣기"):
-            # ✅ 보통 reading을 읽는 게 가장 자연스러움
             speak_tts_browser(q.get("reading") or q.get("jp_word") or "")
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
@@ -2547,7 +2548,6 @@ for idx, q in enumerate(st.session_state.quiz):
         on_change=mark_progress_dirty,
     )
     st.session_state.answers[idx] = choice
-
 
 sync_answers_from_widgets()
 
