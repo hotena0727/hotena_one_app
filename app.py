@@ -2471,6 +2471,7 @@ for idx, q in enumerate(st.session_state.quiz):
     flex:0 0 auto;
     font-size:20px;
     line-height:1;
+    font-weight:900;   /* ← 이 줄 추가 */
     /* ✅ 미세 보정 (필요 시 숫자만 조절) */
     transform: translateY(1px);
   ">{badge}</div>
