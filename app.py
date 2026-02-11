@@ -41,9 +41,11 @@ if not cookies.ready():
     st.stop()
 
 # ============================================================
-# ✅ UI Style
+# ✅ UI Style  (⚠️ '코드처럼 보이는 CSS'가 화면에 찍히면,
+#              이 문자열을 st.write/st.code/st.text로 출력하는 줄이 다른 곳에 있는지 검색하세요.)
 # ============================================================
-st.markdown("""
+st.markdown(
+    """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Kosugi+Maru&family=Noto+Sans+JP:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -115,17 +117,24 @@ div.stButton > button {
 .ans-k{ opacity: 0.7; font-weight: 800; }
 .small-muted{ opacity:.75; font-size:12px; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # ============================================================
 # ✅ CSV / Quiz constants
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "one.csv"  # ✅ 마킹된 CSV 권장
+
 N = 10
-LEVELS = ["N5", "N4", "N3", "N2", "N1"]
+
+# ✅ 왕초보 앱: 레벨 버튼 제거 + 레벨 고정
+FIXED_LEVEL = "N5"
+LEVELS = ["N5", "N4", "N3", "N2", "N1"]  # 데이터 정규화용
 
 POS_CANON = {
+    # i_adj / na_adj 통일
     "adji_i": "i_adj", "adj_i": "i_adj", "i-adj": "i_adj", "adj-i": "i_adj", "i_adj": "i_adj",
     "adji_na": "na_adj", "adj_na": "na_adj", "na-adj": "na_adj", "adj-na": "na_adj", "na_adj": "na_adj",
 }
@@ -138,10 +147,10 @@ POS_BUTTONS_CORE = [
     ("adv", "부사"),
 ]
 
-POS_LABELS_USE = {"particle", "expr"}
+POS_LABELS_USE = {"particle", "expr"}  # 조사/표현(=use 엔진 대상)
 
 QUIZ_TYPES_CORE = [
-    ("reading", "발음"),   # ✅ “읽기” → “발음”
+    ("reading", "발음"),  # ✅ “읽기” → “발음”
     ("meaning", "뜻"),
     ("kr2jp",   "한→일"),
 ]
@@ -197,12 +206,12 @@ def refresh_session_if_needed() -> dict | None:
     sess = get_auth_cookie()
     if not sess:
         return None
+
     access = sess.get("access_token")
     refresh = sess.get("refresh_token")
     if not access or not refresh:
         return None
 
-    # supabase-py: set_session(access, refresh) -> session 반환
     try:
         new_sess = supabase.auth.set_session(access, refresh)
         if new_sess and getattr(new_sess, "session", None):
@@ -216,6 +225,7 @@ def refresh_session_if_needed() -> dict | None:
             return pack
     except Exception:
         return None
+
     return sess
 
 def get_user() -> dict | None:
@@ -241,7 +251,6 @@ def db_upsert_profile(user_id: str, email: str):
 def ensure_role_bootstrap(user: dict):
     """
     ADMIN_EMAILS에 들어있는 이메일이면 role=admin으로 올려줌(편의).
-    - 이미 admin이면 그대로
     """
     if not user:
         return
@@ -349,8 +358,8 @@ def make_use_final_question(row: pd.Series, pool: pd.DataFrame) -> dict:
         "meaning_kr": str(row.get("meaning_kr","")).strip(),
         "example_jp": ex_jp,
         "example_kr": str(row.get("example_kr","")).strip(),
-        "kanji_candidate": str(row.get("kanji_candidate","")).strip(),
-        "kanji_confidence": str(row.get("kanji_confidence","")).strip(),
+        "kanji_candidate": str(row.get("kanji_candidate", "")).strip(),
+        "kanji_confidence": str(row.get("kanji_confidence", "")).strip(),
         "used_example": bool(used_example),
     }
 
@@ -380,7 +389,6 @@ def make_core_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
 
     candidates = [c for c in candidates if str(c).strip()]
     if len(candidates) < 3:
-        # fallback 전체 pool에서 보강
         col = "reading" if qtype == "reading" else ("meaning_kr" if qtype == "meaning" else "jp_word")
         candidates = pool.loc[pool[col] != correct, col].drop_duplicates().tolist()
         candidates = [c for c in candidates if str(c).strip()]
@@ -402,8 +410,8 @@ def make_core_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
         "meaning_kr": mn,
         "example_jp": str(row.get("example_jp", "")).strip(),
         "example_kr": str(row.get("example_kr", "")).strip(),
-        "kanji_candidate": str(row.get("kanji_candidate","")).strip(),
-        "kanji_confidence": str(row.get("kanji_confidence","")).strip(),
+        "kanji_candidate": str(row.get("kanji_candidate", "")).strip(),
+        "kanji_confidence": str(row.get("kanji_confidence", "")).strip(),
     }
 
 def pick_level_mix(level: str) -> dict[str, str]:
@@ -435,9 +443,9 @@ def build_daily_mix(level: str, pool: pd.DataFrame) -> list[dict]:
         out = []
         soft_k = max(0, min(soft_k, k))
         base_k = k - soft_k
-        if base_k > 0:
+        if base_k > 0 and len(df1) > 0:
             out += df1.sample(n=min(base_k, len(df1)), replace=False).to_dict("records")
-        if soft_k > 0:
+        if soft_k > 0 and len(df2) > 0:
             out += df2.sample(n=min(soft_k, len(df2)), replace=False).to_dict("records")
         return out
 
@@ -452,7 +460,7 @@ def build_daily_mix(level: str, pool: pd.DataFrame) -> list[dict]:
             return random.choices(["meaning","kr2jp","reading"], weights=[6,3,1])[0]
         return "meaning"
 
-    quiz = []
+    quiz: list[dict] = []
     for r in use_rows:
         quiz.append(make_use_final_question(pd.Series(r), pool))
     for r in adv_rows:
@@ -483,7 +491,7 @@ def apply_wrong_weight_pool(pool: pd.DataFrame, wrong_keys: list[str]) -> pd.Dat
 # ============================================================
 def clear_q_keys():
     qv = st.session_state.get("quiz_version", 0)
-    keys = [k for k in list(st.session_state.keys()) if isinstance(k,str) and k.startswith(f"q_{qv}_")]
+    keys = [k for k in list(st.session_state.keys()) if isinstance(k, str) and k.startswith(f"q_{qv}_")]
     for k in keys:
         st.session_state.pop(k, None)
 
@@ -543,7 +551,7 @@ def build_wrong_item(idx: int, q: dict, picked: str) -> dict:
         "kanji": {
             "candidate": str(q.get("kanji_candidate", "")),
             "confidence": str(q.get("kanji_confidence", "")),
-        }
+        },
     }
 
 def db_save_study_session(user_id: str, score: int, total: int):
@@ -552,8 +560,7 @@ def db_save_study_session(user_id: str, score: int, total: int):
             "user_id": user_id,
             "level": st.session_state.level,
             "pos_pick": st.session_state.pos_pick,
-            "quiz_type": st.session_state.quiz_type,
-            "mode": st.session_state.pos_pick,
+            "quiz_type": st.session_state.quiz_type,  # daily_mix에서도 '현재 기본유형'으로 기록
             "total": int(total),
             "score": int(score),
             "meta": {"app": "words_magic_v1"},
@@ -570,15 +577,15 @@ def db_save_wrong_notes(user_id: str, wrong_list: list[dict]):
         qq = w.get("q", {})
         rows.append({
             "user_id": user_id,
-            "level": wd.get("level",""),
-            "pos": wd.get("pos",""),
-            "jp_word": wd.get("jp_word",""),
-            "reading": wd.get("reading",""),
-            "meaning_kr": wd.get("meaning_kr",""),
-            "prompt": qq.get("prompt",""),
+            "level": wd.get("level", ""),
+            "pos": wd.get("pos", ""),
+            "jp_word": wd.get("jp_word", ""),
+            "reading": wd.get("reading", ""),
+            "meaning_kr": wd.get("meaning_kr", ""),
+            "prompt": qq.get("prompt", ""),
             "choices": qq.get("choices", []),
-            "correct": qq.get("correct",""),
-            "picked": qq.get("picked",""),
+            "correct": qq.get("correct", ""),
+            "picked": qq.get("picked", ""),
             "payload": w,
         })
     try:
@@ -604,7 +611,11 @@ def render_login_box():
         try:
             res = supabase.auth.sign_in_with_password({"email": email, "password": pw})
             s = res.session
-            pack = {"access_token": s.access_token, "refresh_token": s.refresh_token, "user": {"id": s.user.id, "email": s.user.email}}
+            pack = {
+                "access_token": s.access_token,
+                "refresh_token": s.refresh_token,
+                "user": {"id": s.user.id, "email": s.user.email},
+            }
             set_auth_cookie(pack)
             st.session_state.auth_session = pack
             st.success("로그인 완료!")
@@ -624,8 +635,8 @@ def render_header_userbar(profile: dict | None):
     if not user:
         return
 
-    email = user.get("email","")
-    role = (profile or {}).get("role","user")
+    email = user.get("email", "")
+    role = (profile or {}).get("role", "user")
     banned = bool((profile or {}).get("is_banned", False))
 
     cols = st.columns([1,1,1])
@@ -664,7 +675,7 @@ def render_admin_panel():
                 st.dataframe(pd.DataFrame(rows))
             else:
                 st.info("검색 결과 없음")
-        except Exception as e:
+        except Exception:
             st.error("검색 실패")
 
     st.markdown("### 빠른 차단/해제(수동 입력)")
@@ -715,7 +726,7 @@ if not user:
 ensure_role_bootstrap(user)
 profile = db_get_profile(user["id"])
 if not profile:
-    db_upsert_profile(user["id"], user.get("email",""))
+    db_upsert_profile(user["id"], user.get("email", ""))
     profile = db_get_profile(user["id"]) or {}
 
 render_header_userbar(profile)
@@ -729,7 +740,7 @@ st.caption("‘틀려도 괜찮은 날’로 잡아요. 10문항만 끝내면 �
 # 관리자 패널(탭)
 tabs = st.tabs(["학습", "마이페이지", "관리자"])
 with tabs[2]:
-    if (profile.get("role") == "admin") or ((user.get("email","").lower().strip()) in ADMIN_EMAILS):
+    if (profile.get("role") == "admin") or ((user.get("email", "").lower().strip()) in ADMIN_EMAILS):
         render_admin_panel()
     else:
         st.info("관리자 권한이 없습니다.")
@@ -740,9 +751,13 @@ with tabs[2]:
 ensure_pool()
 pool: pd.DataFrame = st.session_state.pool
 
-if "level" not in st.session_state: st.session_state.level = "N5"
-if "pos_pick" not in st.session_state: st.session_state.pos_pick = "daily_mix"
-if "quiz_type" not in st.session_state: st.session_state.quiz_type = "meaning"
+# ✅ 왕초보 고정 레벨
+st.session_state.level = FIXED_LEVEL
+
+if "pos_pick" not in st.session_state:
+    st.session_state.pos_pick = "daily_mix"
+if "quiz_type" not in st.session_state:
+    st.session_state.quiz_type = "meaning"
 
 def maybe_auto_queue_daily_mix_after_submit():
     if not st.session_state.get("submitted"):
@@ -759,7 +774,7 @@ def build_quiz_now() -> list[dict]:
     pos_pick = st.session_state.pos_pick
     qtype = st.session_state.quiz_type
 
-    wrong_keys = [w.get("jp_word","") for w in (st.session_state.get("wrong_list", []) or []) if isinstance(w, dict)]
+    wrong_keys = [w.get("jp_word", "") for w in (st.session_state.get("wrong_list", []) or []) if isinstance(w, dict)]
     pool2 = apply_wrong_weight_pool(pool, wrong_keys)
 
     if pos_pick == "daily_mix":
@@ -786,28 +801,20 @@ def build_quiz_now() -> list[dict]:
     return [make_core_question(pd.Series(r), qtype, pool2) for r in rows]
 
 with tabs[0]:
+    st.caption("현재 레벨: N5(왕초보) · 오늘은 10문항만 해도 충분해요 🙂")
+
     st.markdown("<div class='qtypewrap'>", unsafe_allow_html=True)
 
-    # 레벨 버튼
-    lv_cols = st.columns(len(LEVELS), gap="small")
-    for i, lv in enumerate(LEVELS):
-        sel = (st.session_state.level == lv)
-        with lv_cols[i]:
-            if st.button(("✅ " if sel else "") + lv, type=("primary" if sel else "secondary"), use_container_width=True, key=f"btn_lv_{lv}"):
-                st.session_state.level = lv
-                clear_q_keys()
-                st.session_state.quiz = []
-                st.session_state.submitted = False
-
-    st.markdown("<div class='qtype_hint jp'>✨ 레벨을 선택하세요</div>", unsafe_allow_html=True)
-
     # 품사 버튼
-    pos_options = [("daily_mix","오늘의 추천(daily_mix)")] + POS_BUTTONS_CORE + [("use","조사·표현(사용)")]
+    pos_options = [("daily_mix", "오늘의 추천(daily_mix)")] + POS_BUTTONS_CORE + [("use", "조사·표현(사용)")]
     pos_cols = st.columns(3, gap="small")
     for idx, (pval, plabel) in enumerate(pos_options):
         sel = (st.session_state.pos_pick == pval)
         with pos_cols[idx % 3]:
-            if st.button(("✅ " if sel else "") + plabel, type=("primary" if sel else "secondary"), use_container_width=True, key=f"btn_pos_{pval}"):
+            if st.button(("✅ " if sel else "") + plabel,
+                         type=("primary" if sel else "secondary"),
+                         use_container_width=True,
+                         key=f"btn_pos_{pval}"):
                 st.session_state.pos_pick = pval
                 clear_q_keys()
                 st.session_state.quiz = []
@@ -815,12 +822,15 @@ with tabs[0]:
 
     st.markdown("<div class='qtype_hint jp'>✨ 품사를 선택하세요</div>", unsafe_allow_html=True)
 
-    # 유형 버튼(코어용)
+    # 유형 버튼(코어용) - daily_mix/use에서는 의미가 덜하지만, 오답 재도전/기록에 쓰이므로 유지
     type_cols = st.columns(len(QUIZ_TYPES_CORE), gap="small")
     for i, (qt, label) in enumerate(QUIZ_TYPES_CORE):
         sel = (st.session_state.quiz_type == qt)
         with type_cols[i]:
-            if st.button(("✅ " if sel else "") + label, type=("primary" if sel else "secondary"), use_container_width=True, key=f"btn_qt_{qt}"):
+            if st.button(("✅ " if sel else "") + label,
+                         type=("primary" if sel else "secondary"),
+                         use_container_width=True,
+                         key=f"btn_qt_{qt}"):
                 st.session_state.quiz_type = qt
                 clear_q_keys()
                 st.session_state.quiz = []
@@ -861,11 +871,17 @@ with tabs[0]:
 
         if q.get("mode") == "use_final":
             prompt = q.get("prompt_tpl", "____")
-            st.markdown(f"<div class='jp' style='margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;'>{prompt}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='jp' style='margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;'>{prompt}</div>",
+                unsafe_allow_html=True,
+            )
             if q.get("meaning_kr"):
                 st.caption(f"뜻 힌트: {q['meaning_kr']}")
         else:
-            st.markdown(f"<div class='jp' style='margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;'>{q.get('prompt','')}</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='jp' style='margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;'>{q.get('prompt','')}</div>",
+                unsafe_allow_html=True,
+            )
 
         prev = answers[idx]
         default_index = q["choices"].index(prev) if (prev is not None and prev in q["choices"]) else None
@@ -905,7 +921,7 @@ with tabs[0]:
         else:
             st.warning("💪 괜찮아요. 오답은 ‘학습이 일어난 증거’입니다.")
 
-        # ✅ DB 저장 (세트 기록 + 오답 문항 저장)
+        # ✅ DB 저장
         db_save_study_session(user["id"], score=score, total=quiz_len)
         db_save_wrong_notes(user["id"], wrong_list)
 
@@ -923,7 +939,8 @@ with tabs[0]:
                 meaning = w["word"]["meaning_kr"]
                 mode = w["set"]["mode"]
 
-                st.markdown(f"""
+                st.markdown(
+                    f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
@@ -940,7 +957,9 @@ with tabs[0]:
     <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
   </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+                    unsafe_allow_html=True,
+                )
 
             st.download_button(
                 "⬇️ 오답노트 JSON 내려받기",
@@ -979,7 +998,8 @@ with tabs[1]:
         rows = sres.data or []
         if rows:
             df = pd.DataFrame(rows)
-            st.dataframe(df[["created_at","level","pos_pick","quiz_type","total","score"]])
+            cols = [c for c in ["created_at","level","pos_pick","quiz_type","total","score"] if c in df.columns]
+            st.dataframe(df[cols] if cols else df)
         else:
             st.info("아직 저장된 기록이 없습니다.")
     except Exception:
@@ -991,7 +1011,8 @@ with tabs[1]:
         wrows = wres.data or []
         if wrows:
             wdf = pd.DataFrame(wrows)
-            st.dataframe(wdf[["created_at","level","pos","jp_word","reading","meaning_kr","picked","correct"]])
+            cols = [c for c in ["created_at","level","pos","jp_word","reading","meaning_kr","picked","correct"] if c in wdf.columns]
+            st.dataframe(wdf[cols] if cols else wdf)
         else:
             st.info("최근 오답이 없습니다.")
     except Exception:
