@@ -253,7 +253,7 @@ div.stButton > button{
   align-items:flex-end;
   justify-content:space-between;
   gap:12px;
-  margin: 10px 0 16px 0;
+  margin: 0px 0 12px 0;
 }
 .headtitle{
   font-size:32px;
