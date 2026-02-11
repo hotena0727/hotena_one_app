@@ -77,7 +77,7 @@ N = 10  # 한 번에 10문항
 # ============================================================
 # ✅ POS / QUIZ TYPES  (✅ B안: pos_group + other 세부 선택)
 # ============================================================
-POS_GROUP_OPTIONS = ["noun", "verb", "adj_i", "adj_na", "other"]
+POS_GROUP_OPTIONS = ["noun", "adj_i", "adj_na", "verb", "other"]
 POS_LABEL_MAP = {
     "noun": "명사",
     "verb": "동사",
