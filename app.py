@@ -40,6 +40,9 @@ import time
 import traceback
 import base64
 import textwrap 
+import streamlit as st
+from gtts import gTTS
+import io
 
 # ============================================================
 # ✅ Page Config + Paths
@@ -1006,6 +1009,49 @@ def sfx(event: str):
     path = mp.get(event)
     if path:
         play_sound_file(path)
+
+# ============================================================
+# ✅ TTS (A안) - gTTS로 일본어 읽기 (문제/오답노트에서 버튼으로 재생)
+# ============================================================
+def _tts_enabled() -> bool:
+    # SFX 토글과 분리: TTS는 따로 관리 (기본 ON 추천)
+    if "tts_enabled" not in st.session_state:
+        st.session_state.tts_enabled = True
+    return bool(st.session_state.tts_enabled)
+
+def render_tts_toggle():
+    # 상단(퀴즈 페이지)에서 토글 하나 제공
+    c1, c2 = st.columns([1.4, 8.6], vertical_alignment="center")
+    with c1:
+        st.session_state.tts_enabled = st.toggle("TTS", value=_tts_enabled(), label_visibility="collapsed")
+    with c2:
+        st.caption("TTS " + ("ON ✅" if st.session_state.tts_enabled else "OFF"))
+
+@st.cache_data(show_spinner=False)
+def tts_mp3_bytes(text: str, lang: str = "ja") -> bytes:
+    # gTTS는 인터넷 필요 + 느릴 수 있어서 캐시 필수
+    t = _nfkc_str(text)
+    if not t:
+        return b""
+    fp = io.BytesIO()
+    gTTS(t, lang=lang).write_to_fp(fp)
+    return fp.getvalue()
+
+def play_tts(text: str, key: str):
+    """
+    - key는 위젯 충돌 방지용(문제별 고유)
+    - st.audio는 autoplay가 아니라 사용자가 눌러 재생(모바일 정책 안전)
+    """
+    if not _tts_enabled():
+        return
+    try:
+        b = tts_mp3_bytes(text, lang="ja")
+        if b:
+            st.audio(b, format="audio/mp3")
+    except Exception as e:
+        if is_admin():
+            st.warning("TTS 실패(네트워크/서버 환경 확인)")
+            st.exception(e)
 
 # ============================================================
 # ✅ Login UI
@@ -2193,6 +2239,7 @@ if st.session_state.page == "my":
 # ============================================================
 render_topcard()
 render_sound_toggle()
+render_tts_toggle()
 
 streak = st.session_state.get("streak_count")
 did_today = st.session_state.get("did_attend_today")
@@ -2453,10 +2500,29 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
     st.subheader(f"Q{idx+1}")
+    
     st.markdown(
         f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
         unsafe_allow_html=True
     )
+
+    for idx, q in enumerate(st.session_state.quiz):
+    st.subheader(f"Q{idx+1}")
+
+    st.markdown(
+        f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+        unsafe_allow_html=True
+    )
+
+    # ✅ TTS A안: 단어(jp_word) 읽기 버튼
+    tts_text = str(q.get("jp_word", "")).strip()
+    if tts_text:
+        c_tts1, c_tts2 = st.columns([2.2, 7.8], vertical_alignment="center")
+        with c_tts1:
+            if st.button("🔊 읽어주기", use_container_width=True, key=f"btn_tts_q_{st.session_state.quiz_version}_{idx}"):
+                play_tts(tts_text, key=f"tts_q_{st.session_state.quiz_version}_{idx}")
+        with c_tts2:
+            st.caption("원하는 경우만 눌러서 들어보세요.")
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
     prev = st.session_state.answers[idx]
