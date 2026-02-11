@@ -537,6 +537,13 @@ def ensure_excluded_wrong_words_shape():
     for qt in types:
         st.session_state.excluded_wrong_words.setdefault(mastery_key(qt), set())
 
+def ensure_seen_words_shape():
+    if "seen_words" not in st.session_state or not isinstance(st.session_state.seen_words, dict):
+        st.session_state.seen_words = {}
+    types = QUIZ_TYPES_ADMIN if is_admin() else QUIZ_TYPES_USER
+    for qt in types:
+        st.session_state.seen_words.setdefault(mastery_key(qt), set())     
+
 def ensure_mastery_banner_shape():
     if "mastery_banner_shown" not in st.session_state or not isinstance(st.session_state.mastery_banner_shown, dict):
         st.session_state.mastery_banner_shown = {}
@@ -606,6 +613,15 @@ def mark_progress_dirty():
     except Exception:
         pass
 
+def mark_quiz_as_seen(quiz_list: list[dict], qtype: str, pos_group: str):
+    ensure_seen_words_shape()
+    k = mastery_key(qtype=qtype, pos=pos_group)
+    s = st.session_state.seen_words.setdefault(k, set())
+    for q in (quiz_list or []):
+        w = str(q.get("jp_word", "")).strip()
+        if w:
+            s.add(w)
+            
 # ============================================================
 # ✅ Auth helpers (JWT refresh, sb authed)
 # ============================================================
@@ -1581,6 +1597,7 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
     ensure_mastered_words_shape()
     ensure_excluded_wrong_words_shape()
     ensure_mastery_banner_shape()
+    ensure_seen_words_shape()
 
     pool = st.session_state["_pool"]
 
@@ -1596,14 +1613,18 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
         return []
 
     k = mastery_key(qtype=qtype, pos=pos_group)
+
+    seen = st.session_state.get("seen_words", {}).get(k, set())
     mastered = st.session_state.get("mastered_words", {}).get(k, set())
     excluded = st.session_state.get("excluded_wrong_words", {}).get(k, set())
 
     blocked = set()
+    if seen:
+        blocked |= set(seen)          # ✅ 한 번이라도 출제된 건 전부 제외
     if mastered:
-        blocked |= set(mastered)
+        blocked |= set(mastered)      # (겹쳐도 무관)
     if excluded:
-        blocked |= set(excluded)
+        blocked |= set(excluded)    
 
     def _filter_blocked(df: pd.DataFrame) -> pd.DataFrame:
         if not blocked:
@@ -2124,6 +2145,7 @@ def on_pick_pos_group(ps: str):
     clear_question_widget_keys()
     new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+    mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
     st.session_state["_scroll_top_once"] = True
 
 def on_pick_qtype(qt: str):
@@ -2134,6 +2156,7 @@ def on_pick_qtype(qt: str):
 
     clear_question_widget_keys()
     new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+    mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
     st.session_state["_scroll_top_once"] = True
 
@@ -2233,6 +2256,7 @@ with cbtn1:
 
         clear_question_widget_keys()
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+        mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
@@ -2244,6 +2268,9 @@ with cbtn2:
         st.session_state.mastered_words[k_now] = set()
         st.session_state.mastery_banner_shown[k_now] = False
         st.session_state.mastery_done[k_now] = False
+        ensure_seen_words_shape()
+        st.session_state.seen_words[k_now] = set()
+
 
         # ✅ 제한 그룹이면 quiz_type 방어
         if str(st.session_state.get("pos_group","noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
@@ -2271,8 +2298,10 @@ if "quiz" not in st.session_state or not isinstance(st.session_state.quiz, list)
 is_mastered_done = bool(st.session_state.get("mastery_done", {}).get(k_now, False))
 if (not is_mastered_done) and len(st.session_state.quiz) == 0:
     clear_question_widget_keys()
-    st.session_state.quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group) or []
-    st.session_state.submitted = False
+    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group) or []
+    start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+    mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
+    st.session_state["_scroll_top_once"] = True
 
 if len(st.session_state.quiz) == 0:
     k_now = mastery_key()
@@ -2615,6 +2644,7 @@ if st.session_state.get("submitted", False):
             clear_question_widget_keys()
             new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
             start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
             st.session_state["_scroll_top_once"] = True
             st.rerun()
 
