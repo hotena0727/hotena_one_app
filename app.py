@@ -2542,7 +2542,7 @@ if st.session_state.wrong_list:
 
     # 카드 높이(대략) 계산: 카드 1개당 190~220px 정도면 안정적
     height = 210 * len(cards) + 30   # ✅ 여백 최소화
-    height = max(230, min(height, 1300))
+    height = max(210, min(height, 1600))
 
 
     components.html(
