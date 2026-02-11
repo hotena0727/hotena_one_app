@@ -1899,6 +1899,24 @@ def render_my_dashboard():
     for i, (w, cnt) in enumerate(top10, start=1):
         render_wrong_top10_card(i, str(w), int(cnt))
 
+    # ✅ TOP10 시험보기 버튼
+    top10_words = [str(w) for (w, _) in top10]
+
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    if st.button("🧪 TOP10으로 시험보기", type="primary", use_container_width=True, key="btn_top10_quiz"):
+        clear_question_widget_keys()
+
+        quiz = build_quiz_from_word_keys(
+            word_keys=top10_words,
+            qtype=st.session_state.get("quiz_type", "meaning"),
+            pos_group=st.session_state.get("pos_group", "noun"),
+        )
+
+        start_quiz_state(quiz, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
+        st.session_state.page = "quiz"
+        st.session_state["_scroll_top_once"] = True
+        st.rerun()
+
 # ============================================================
 # ✅ Home
 # ============================================================
@@ -2469,6 +2487,38 @@ if st.session_state.submitted:
 # ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
 # - st.markdown() 대신 components.html()로 렌더 (마크다운 파서 우회)
 # ============================================================
+
+
+def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 안전장치
+    pos_group = str(pos_group).strip().lower()
+    qtype = str(qtype).strip()
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
+    ensure_pool_ready()
+    pool = st.session_state["_pool"]
+
+    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        return []
+
+    pos_filters = get_pos_filters()
+    df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
+        & (pool["jp_word"].astype(str).str.strip().isin(keys))
+    ].copy()
+
+    if qtype == "reading":
+        df = df[df["jp_word"].apply(_has_kanji)].copy()
+
+    if df.empty:
+        return []
+
+    df = df.sample(frac=1).reset_index(drop=True)
+    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
+
 
 # (필수) build_quiz_from_wrongs 버그 1줄 수정도 같이 반영하세요.
 # 아래 함수 안의 잘못된 base_pos 참조를 retry_df로 바꿉니다.
