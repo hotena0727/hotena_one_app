@@ -2699,38 +2699,37 @@ if st.session_state.wrong_list:
     height = max(190, min(height, 1200))
 
 
-    components.html(
-        textwrap.dedent(
-            f"""
+        # ✅ 공통 스타일 (preview / more 에서 둘 다 써야 하므로 문자열로 분리)
+    STYLE = """
 <style>
-.wrong-card{{
+.wrong-card{
   border: 1px solid rgba(120,120,120,0.25);
   border-radius: 16px;
   padding: 14px 14px;
   margin-bottom: 10px;
   background: rgba(255,255,255,0.02);
-}}
-.wrong-top{{
+}
+.wrong-top{
   display:flex;
   align-items:flex-start;
   justify-content:space-between;
   gap:12px;
   margin-bottom: 8px;
-}}
-.wrong-left{{ min-width:0; }}
-.wrong-title{{
+}
+.wrong-left{ min-width:0; }
+.wrong-title{
   font-weight: 900;
   font-size: 15px;
   margin-bottom: 4px;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-}}
-.wrong-sub{{
+}
+.wrong-sub{
   opacity: 0.8;
   font-size: 12px;
-}}
-.tag{{
+}
+.tag{
   display:inline-flex;
   align-items:center;
   gap:6px;
@@ -2741,22 +2740,48 @@ if st.session_state.wrong_list:
   border: 1px solid rgba(120,120,120,0.25);
   background: rgba(255,255,255,0.03);
   white-space: nowrap;
-}}
-.ans-row{{
+}
+.ans-row{
   display:grid;
   grid-template-columns: 72px 1fr;
   gap:10px;
   margin-top:6px;
   font-size: 13px;
-}}
-.ans-k{{ opacity: 0.7; font-weight: 700; }}
+}
+.ans-k{ opacity: 0.7; font-weight: 700; }
 </style>
-
-{all_cards_html}
 """
-        ),
-        height=height,
-    )
+
+    def _render_cards(card_list: list[str], max_height: int = 650):
+        """카드 리스트를 components.html로 렌더"""
+        if not card_list:
+            return
+        html = "".join(card_list)
+
+        # 카드 1장당 높이(대략)
+        h = 190 * len(card_list) + 10
+        h = max(190, min(h, max_height))
+
+        components.html(
+            textwrap.dedent(f"""
+{STYLE}
+{html}
+"""),
+            height=h,
+        )
+
+    # ✅ 3개만 먼저 보여주기
+    MAX_PREVIEW = 3
+    preview_cards = cards[:MAX_PREVIEW]
+    rest_cards = cards[MAX_PREVIEW:]
+
+    _render_cards(preview_cards, max_height=650)
+
+    # ✅ 3개 초과면 "더 보기"로 나머지 펼치기
+    if rest_cards:
+        with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
+            _render_cards(rest_cards, max_height=900)
+
 # ============================================================
 # ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
 # ============================================================
