@@ -2452,7 +2452,6 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 # ✅ 문제 표시
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
-    st.subheader(f"Q{idx+1}")
     st.markdown(
         f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
         unsafe_allow_html=True
