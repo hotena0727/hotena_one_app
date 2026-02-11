@@ -2452,7 +2452,7 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 # ✅ 문제 표시
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
-    st.markdown(f"**Q{idx+1}.** {q.get('prompt','')}")
+    prompt = html.escape(str(q.get("prompt", "")))
 
     st.markdown(
         f"""
