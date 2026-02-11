@@ -2594,7 +2594,7 @@ if st.session_state.submitted:
             mode = quiz_label_map.get(w.get("유형"), w.get("유형", ""))
             pos_label = POS_LABEL_MAP.get(w.get("품사"), w.get("품사", ""))
 
-             card_html = f"""
+            card_html = f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
@@ -2613,8 +2613,6 @@ if st.session_state.submitted:
 </div>
 """
             st.markdown(textwrap.dedent(card_html), unsafe_allow_html=True)
-
-
 
         if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_bottom"):
             clear_question_widget_keys()
