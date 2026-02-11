@@ -1313,9 +1313,9 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
 
     elif qtype == "kr2jp":
         prompt = f"'{mn}'의 일본어는?"
-        correct = jp
+        correct = jp  # display_jp
         candidates = (
-            pool_pos.loc[pool_pos["jp_word"] != correct, "jp_word"]
+            pool_pos.loc[pool_pos["display_jp"] != correct, "display_jp"]
             .dropna().astype(str).str.strip().tolist()
         )
         candidates = [x for x in dict.fromkeys(candidates) if x]
