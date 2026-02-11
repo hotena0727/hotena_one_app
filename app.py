@@ -130,8 +130,8 @@ def render_pattern_cards():
 
     st.markdown("""
 
-<link rel="icon" href="/app/static/assets/h_logo_192">
-<link rel="apple-touch-icon" href="/app/static/assets/h_logo.png">
+<link rel="icon" href="/app/static/assets/h_logo_192.png">
+<link rel="apple-touch-icon" href="/app/static/assets/apple-touch-icon.png">
 <meta name="theme-color" content="#0B2A6F">
 """, unsafe_allow_html=True)
 
