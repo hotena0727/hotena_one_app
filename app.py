@@ -217,6 +217,24 @@ st.markdown(
   letter-spacing:.2px;
 }
 
+/* ✅ Q 줄(문제+🔊)만: 다음 horizontal block을 1줄로 고정 */
+.qrow_anchor + div[data-testid="stHorizontalBlock"]{
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+}
+
+/* ✅ 줄바꿈 방지 핵심: 각 column이 줄바꿈될 때 폭 계산이 깨지지 않게 */
+.qrow_anchor + div[data-testid="stHorizontalBlock"] > div{
+  min-width: 0 !important;
+}
+
+/* ✅ 오른쪽(🔊) 칸은 고정폭 느낌으로 */
+.qrow_anchor + div[data-testid="stHorizontalBlock"] > div:last-child{
+  flex: 0 0 52px !important; /* 버튼 폭 */
+}
+
+
 /* 메인 컨테이너 위쪽 여백 줄이기 */
 div[data-testid="stAppViewContainer"] .block-container{
   padding-top: 1.0rem !important;   /* 0.5~1.5rem 사이로 취향 조절 */
@@ -2520,6 +2538,7 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 for idx, q in enumerate(st.session_state.quiz):
     st.subheader(f"Q{idx+1}")
 
+    st.markdown('<div class="qrow_anchor"></div>', unsafe_allow_html=True)
     # ✅ 1) 여기: 문제 + 버튼을 한 묶음으로 먼저 출력
     cL, cR = st.columns([14, 1], vertical_alignment="center")
 
