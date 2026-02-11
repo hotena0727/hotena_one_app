@@ -2308,7 +2308,7 @@ if len(st.session_state.quiz) == 0:
     if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
         st.success("✅ 이 설정에서 새로 출제할 문제가 더 이상 없습니다.")
         st.caption("👉 ‘출제 이력 초기화(다시 시작)’를 누르거나, 다른 품사·유형을 선택해 주세요.")
-        st.caption("👉 틀린 문제는 아래 ‘틀린 문제만 다시 풀기’로 복습하면 흐름이 깔끔합니다.")
+        st.caption("👉 틀린 문제는 마이페이지에서 ‘틀린 문제만 다시 풀기’로 복습하세요~")
         st.stop()
 
     st.info("현재는 이 설정으로 낼 문제가 없어요. 다른 품사/유형으로 바꿔서 시작해 주세요.")
