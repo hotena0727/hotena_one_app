@@ -144,7 +144,7 @@ def render_pattern_cards():
 </style>
 """, unsafe_allow_html=True)
 
-    for it in items:
+    for it in items[:1]:
         ex_html = ""
         for jp, kr in it.get("ex", [])[:2]:
             ex_html += f"<div class='pat-ex'><b>{jp}</b><br/>{kr}</div>"
