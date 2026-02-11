@@ -18,6 +18,8 @@
 #      - adj_i: 보기 전부 끝이 'い'로 통일(동일 pos 풀에서)
 #      - adj_na: pos가 동일하므로 기본적으로 모양 찍기 난이도 상승(동사처럼 suffix 적용은 X)
 #   2) 제출 후 SFX: perfect / (0.7 이상) correct / (그 외) wrong
+#   3) ✅ 요청 반영: 부사/조사/접속사/감탄사(adv, particle, conj, interj) 에서는
+#      - 유형을 "뜻, 한→일" 2개만 노출 (발음 숨김)
 # ============================================================
 
 from __future__ import annotations
@@ -77,6 +79,9 @@ quiz_label_map = {
 QUIZ_TYPES_USER = ["reading", "meaning", "kr2jp"]
 QUIZ_TYPES_ADMIN = ["reading", "meaning", "kr2jp"]  # 필요시 관리자 전용 유형 추가 가능
 
+# ✅ 요청 반영: 이 품사들은 발음(reading) 숨김
+POS_ONLY_2TYPES = {"adv", "particle", "conj", "interj"}
+
 # ============================================================
 # ✅ Session Defaults
 # ============================================================
@@ -89,6 +94,10 @@ if st.session_state.quiz_type not in QUIZ_TYPES_USER:
     st.session_state.quiz_type = "meaning"
 if st.session_state.pos not in POS_OPTIONS:
     st.session_state.pos = "noun"
+
+# ✅ (안전) 제한 품사인데 reading이 잡혀 있으면 meaning으로 강제
+if str(st.session_state.get("pos", "noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+    st.session_state.quiz_type = "meaning"
 
 # ============================================================
 # ✅ CSS (폰트/버튼/카드/간격)
@@ -771,6 +780,10 @@ def restore_progress_from_db(sb_authed, user_id: str):
     if st.session_state.quiz_type not in QUIZ_TYPES_USER:
         st.session_state.quiz_type = "meaning"
 
+    # ✅ 제한 품사면 reading 복원되더라도 meaning으로 강제
+    if str(st.session_state.get("pos", "noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+        st.session_state.quiz_type = "meaning"
+
     if isinstance(st.session_state.quiz, list):
         qlen = len(st.session_state.quiz)
         if not isinstance(st.session_state.answers, list) or len(st.session_state.answers) != qlen:
@@ -781,6 +794,14 @@ def restore_progress_from_db(sb_authed, user_id: str):
 # ============================================================
 def get_available_quiz_types() -> list[str]:
     return QUIZ_TYPES_ADMIN if is_admin() else QUIZ_TYPES_USER
+
+# ✅ (신규) pos에 따라 가능한 유형 필터
+def get_available_quiz_types_for_pos(pos: str) -> list[str]:
+    pos = str(pos).strip().lower()
+    base = get_available_quiz_types()
+    if pos in POS_ONLY_2TYPES:
+        return [t for t in base if t in ("meaning", "kr2jp")]
+    return base
 
 # ============================================================
 # ✅ SOUND
@@ -1270,7 +1291,6 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
     okuri = _to_hira(okuri)
 
     # (중요) 한자 없는 단어는 okuri가 전체가 되어버릴 수 있음 → "끝 비교용"으로만 쓰자
-    # 즉, okuri가 너무 길면 마지막 2글자/1글자만 사용
     ok2 = okuri[-2:] if len(okuri) >= 2 else ""
     ok1 = okuri[-1:] if len(okuri) >= 1 else ""
 
@@ -1287,56 +1307,36 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
 
     def score(c: str) -> int:
         ch = _to_hira(c)
-        # 점수 높을수록 우선
         sc = 0
         if want_suru:
             if ch.endswith("する"):
                 sc += 100
-            # する가 아닌 건 크게 감점(그래도 fallback은 가능)
             else:
                 sc -= 50
-        # 2글자 끝 동일(가장 중요)
         if target2 and _safe_suffix_hira(ch, 2) == target2:
             sc += 60
-        # 1글자 끝 동일(차선)
         if target1 and _safe_suffix_hira(ch, 1) == target1:
             sc += 25
-        # 너무 똑같은(정답과 완전 동일) 건 제외 대상이지만 혹시라도 유사도가 너무 높으면 약간 감점
         if ch == correct_h:
             sc -= 999
         return sc
 
-    # 점수순 정렬 후, 상위에서 k개 뽑되 중복 제거
     ranked = sorted(cands, key=lambda x: score(x), reverse=True)
 
-    # 1차: score가 높은 것부터 채우기
-    picked = []
-    for c in ranked:
-        if len(picked) >= k:
-            break
-        # 최소한 "끝 1글자"라도 같게(가능하면) 유지하고 싶으니,
-        # 상위 구간에서는 target1이 맞는 것 위주로 먼저 채움
-        picked.append(c)
-
-    # 위 방식만 쓰면 섞일 수 있으니,
-    # "가능한 만큼" 2글자 동일/1글자 동일을 우선 채우는 2단계 보정
     same2 = [c for c in ranked if target2 and _safe_suffix_hira(c, 2) == target2]
     same1 = [c for c in ranked if target1 and _safe_suffix_hira(c, 1) == target1]
 
     out = []
-    # 2글자 동일 먼저
     for c in same2:
         if c not in out:
             out.append(c)
         if len(out) == k:
             return out
-    # 1글자 동일로 보강
     for c in same1:
         if c not in out:
             out.append(c)
         if len(out) == k:
             return out
-    # 그래도 부족하면 점수순으로 채움(최대한 가까운 애들)
     for c in ranked:
         if c not in out:
             out.append(c)
@@ -1345,9 +1345,7 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
 
     return out[:k]
 
-
 def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
-    # ✅ jp_word가 "표시용 단어"이자 "출제 단어"
     jp = str(row.get("jp_word", "")).strip()
     rd = str(row.get("reading", "")).strip()
     mn = str(row.get("meaning", "")).strip()
@@ -1386,7 +1384,7 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
 
     elif qtype == "kr2jp":
         prompt = f"'{mn}'의 일본어는?"
-        correct = jp  # ✅ jp_word
+        correct = jp
         candidates = (
             pool_pos.loc[pool_pos["jp_word"] != correct, "jp_word"]
             .dropna().astype(str).str.strip().tolist()
@@ -1417,6 +1415,12 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     }
 
 def build_quiz(qtype: str, pos: str) -> list[dict]:
+    # ✅ 안전장치: 제한 품사에서는 reading 강제 금지
+    pos = str(pos).strip().lower()
+    qtype = str(qtype).strip()
+    if pos in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
     ensure_pool_ready()
     ensure_mastered_words_shape()
     ensure_excluded_wrong_words_shape()
@@ -1424,7 +1428,6 @@ def build_quiz(qtype: str, pos: str) -> list[dict]:
 
     pool = st.session_state["_pool"]
 
-    pos = str(pos).strip().lower()
     base_pos = pool[pool["pos"].astype(str).str.strip().str.lower() == pos].copy()
 
     if len(base_pos) < N:
@@ -1458,6 +1461,12 @@ def build_quiz(qtype: str, pos: str) -> list[dict]:
     return [make_question(sampled.iloc[i], qtype, pool) for i in range(N)]
 
 def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos: str) -> list:
+    # ✅ 안전장치
+    pos = str(pos).strip().lower()
+    qtype = str(qtype).strip()
+    if pos in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
     ensure_pool_ready()
     pool = st.session_state["_pool"]
 
@@ -1829,10 +1838,21 @@ user_id = user.id
 user_email = getattr(user, "email", None) or st.session_state.get("login_email")
 sb_authed = get_authed_sb()
 
+# ✅ pos 기반 available_types 적용
 try:
-    available_types = get_available_quiz_types() if sb_authed is not None else QUIZ_TYPES_USER
+    if sb_authed is not None:
+        available_types = get_available_quiz_types_for_pos(st.session_state.get("pos", "noun"))
+    else:
+        base_types = QUIZ_TYPES_USER
+        pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
+        available_types = [t for t in base_types if t in ("meaning", "kr2jp")] if pos_now in POS_ONLY_2TYPES else base_types
 except Exception:
-    available_types = QUIZ_TYPES_USER
+    pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
+    available_types = ["meaning", "kr2jp"] if pos_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
+
+# ✅ 현재 선택된 유형이 pos에서 허용되지 않으면 meaning으로 강제
+if st.session_state.get("quiz_type") not in available_types:
+    st.session_state.quiz_type = "meaning"
 
 if sb_authed is not None and not st.session_state.get("progress_restored"):
     try:
@@ -1840,6 +1860,14 @@ if sb_authed is not None and not st.session_state.get("progress_restored"):
     except Exception:
         pass
     st.session_state.progress_restored = True
+
+# ✅ 복원 후에도 pos/available_types 재동기화
+try:
+    available_types = get_available_quiz_types_for_pos(st.session_state.get("pos", "noun")) if sb_authed is not None else available_types
+except Exception:
+    pass
+if st.session_state.get("quiz_type") not in available_types:
+    st.session_state.quiz_type = "meaning"
 
 if st.session_state.get("page") != "home":
     u = st.session_state.get("user")
@@ -1960,6 +1988,12 @@ def on_pick_pos(ps: str):
         return
     st.session_state.pos = ps
 
+    # ✅ pos 제한이면 reading 선택 상태를 자동 해제
+    if ps in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+        st.session_state.quiz_type = "meaning"
+
+    # ✅ pos 변경에 따라 available_types 재계산(전역 변수 업데이트 목적)
+    # (Streamlit rerun 환경이라 아래에서 다시 그려질 때 반영됨)
     clear_question_widget_keys()
     new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
@@ -1975,6 +2009,21 @@ def on_pick_qtype(qt: str):
     new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
     st.session_state["_scroll_top_once"] = True
+
+# ✅ 현재 pos 기준으로 유형 리스트 재계산(표시 직전에!)
+try:
+    if sb_authed is not None:
+        available_types = get_available_quiz_types_for_pos(st.session_state.get("pos", "noun"))
+    else:
+        pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
+        available_types = ["meaning", "kr2jp"] if pos_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
+except Exception:
+    pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
+    available_types = ["meaning", "kr2jp"] if pos_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
+
+# ✅ 선택된 유형이 현재 pos에서 허용되지 않으면 meaning으로 강제
+if st.session_state.get("quiz_type") not in available_types:
+    st.session_state.quiz_type = "meaning"
 
 st.markdown('<div class="qtypewrap">', unsafe_allow_html=True)
 
@@ -2038,6 +2087,10 @@ with cbtn2:
         st.session_state.mastered_words[k_now] = set()
         st.session_state.mastery_banner_shown[k_now] = False
         st.session_state.mastery_done[k_now] = False
+
+        # ✅ 제한 품사면 quiz_type 방어
+        if str(st.session_state.get("pos","noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+            st.session_state.quiz_type = "meaning"
 
         clear_question_widget_keys()
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
@@ -2159,7 +2212,6 @@ if st.session_state.submitted:
     st.success(f"점수: {score} / {quiz_len}")
     ratio = score / quiz_len if quiz_len else 0
 
-    # ✅ SFX 규칙(수정)
     if ratio == 1:
         sfx("perfect")
     elif ratio >= 0.7:
