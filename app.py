@@ -2448,13 +2448,26 @@ if "answers" not in st.session_state or not isinstance(st.session_state.answers,
 if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
     st.stop()
 
+def _esc_html(x) -> str:
+    x = "" if x is None else str(x)
+    return (x.replace("&", "&amp;")
+             .replace("<", "&lt;")
+             .replace(">", "&gt;")
+             .replace('"', "&quot;")
+             .replace("'", "&#39;"))
+
 # ============================================================
 # ✅ 문제 표시
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
-    st.subheader(f"Q{idx+1}")
+    prompt = _esc_html(q.get("prompt", ""))
+
     st.markdown(
-        f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+        f"""
+<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">
+  <b>Q{idx+1}.</b> {prompt}
+</div>
+""",
         unsafe_allow_html=True
     )
 
@@ -2473,8 +2486,6 @@ for idx, q in enumerate(st.session_state.quiz):
         on_change=mark_progress_dirty,
     )
     st.session_state.answers[idx] = choice
-
-sync_answers_from_widgets()
 
 # ============================================================
 # ✅ 제출/채점
