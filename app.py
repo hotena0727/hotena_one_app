@@ -39,6 +39,7 @@ from collections import Counter
 import time
 import traceback
 import base64
+import textwrap 
 
 # ============================================================
 # ✅ Page Config + Paths
@@ -2594,7 +2595,7 @@ if st.session_state.submitted:
             pos_label = POS_LABEL_MAP.get(w.get("품사"), w.get("품사", ""))
 
             st.markdown(
-                f"""
+                textwrap.dedent(f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
@@ -2611,7 +2612,7 @@ if st.session_state.submitted:
     <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
   </div>
 </div>
-""",
+"""),
                 unsafe_allow_html=True,
             )
 
