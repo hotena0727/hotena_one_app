@@ -2511,8 +2511,8 @@ for idx, q in enumerate(st.session_state.quiz):
     if tts_text:
         c_tts1, c_tts2 = st.columns([2.2, 7.8], vertical_alignment="center")
         with c_tts1:
-            if st.button("🔊 읽어주기", use_container_width=True, key=f"btn_tts_q_{st.session_state.quiz_version}_{idx}"):
-                play_tts(tts_text, key=f"tts_q_{st.session_state.quiz_version}_{idx}")
+            if st.button("🔊 발음 듣기", key=f"tts_{q_no}", type="secondary"):
+                play_tts(question_word)
         with c_tts2:
             st.caption("원하는 경우만 눌러서 들어보세요.")
 
