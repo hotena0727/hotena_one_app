@@ -1431,6 +1431,22 @@ def ensure_patterns_ready():
 def _nfkc_str(x) -> str:
     return unicodedata.normalize("NFKC", str(x or "")).strip()
 
+def _has_kanji(s: str) -> bool:
+    """
+    jp_word에 '한자'가 1글자라도 포함되어 있으면 True.
+    (발음 문제에서 '히라가나만 있는 단어'를 제외하기 위한 용도)
+    """
+    s = _nfkc_str(s)
+    for ch in s:
+        code = ord(ch)
+        # CJK Unified Ideographs (일반 한자 범위)
+        if 0x4E00 <= code <= 0x9FFF:
+            return True
+        # CJK Extension A (일부 한자)
+        if 0x3400 <= code <= 0x4DBF:
+            return True
+    return False
+
 def _to_hira(s: str) -> str:
     s = _nfkc_str(s)
     out = []
@@ -1632,6 +1648,10 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
     pos_filters = get_pos_filters()
     base_pos = pool[pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters)].copy()
 
+    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외
+    if qtype == "reading":
+        base_pos = base_pos[base_pos["jp_word"].apply(_has_kanji)].copy()
+
     if len(base_pos) < N:
         st.warning(f"{POS_LABEL_MAP.get(pos_group,pos_group)} 단어가 부족합니다. (현재 {len(base_pos)}개 / 필요 {N}개)")
         return []
@@ -1694,6 +1714,11 @@ def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list
         st.stop()
 
     retry_df = retry_df.sample(frac=1).reset_index(drop=True)
+
+    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외
+    if qtype == "reading":
+        base_pos = base_pos[base_pos["jp_word"].apply(_has_kanji)].copy()
+
     return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
 
 # ============================================================
