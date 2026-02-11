@@ -1276,7 +1276,7 @@ def render_topcard():
     left, r_admin, r_my, r_logout = st.columns([6.0, 1.2, 2.4, 2.4], vertical_alignment="center")
 
     with left:
-        st.markdown("<div style='height:40px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
     with r_admin:
         if is_admin():
