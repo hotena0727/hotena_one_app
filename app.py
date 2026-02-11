@@ -2287,7 +2287,6 @@ with cbtn2:
 k_now = mastery_key()
 if st.session_state.get("mastery_done", {}).get(k_now, False):
     st.success("🏆 이 품사/유형을 완전히 정복했어요!")
-    st.caption("👉 다른 품사·유형을 선택하거나, '맞힌 단어 제외 초기화'로 다시 시작할 수 있어요.")
 
 # ============================================================
 # ✅ 퀴즈 생성(없으면 1회 자동 생성)
