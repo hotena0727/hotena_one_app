@@ -2479,7 +2479,7 @@ for idx, q in enumerate(st.session_state.quiz):
   <div style="
     flex:1 1 auto;
     font-size:18px;
-    font-weight:600;
+    font-weight:500;
     line-height:1.35;
   ">{q["prompt"]}</div>
 </div>
