@@ -1,1 +1,1 @@
-# hotena_one_app
+# hotena_quiz_test_app
