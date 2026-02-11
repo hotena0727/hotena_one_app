@@ -2603,18 +2603,6 @@ if st.session_state.wrong_list:
         ),
         height=height,
     )
-
-    if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_bottom"):
-        clear_question_widget_keys()
-        retry_quiz = build_quiz_from_wrongs(
-            st.session_state.wrong_list,
-            st.session_state.quiz_type,
-            st.session_state.pos_group
-        )
-        start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
-        st.session_state["_scroll_top_once"] = True
-        st.rerun()
-
 # ============================================================
 # ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
 # ============================================================
