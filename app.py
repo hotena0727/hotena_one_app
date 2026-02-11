@@ -2523,8 +2523,6 @@ if st.session_state.submitted:
                 "단어": str(q.get("jp_word", "")).strip(),
                 "읽기": str(q.get("reading", "")).strip(),
                 "뜻": str(q.get("meaning", "")).strip(),
-                "예문JP": str(q.get("example_jp", "")).strip(),
-                "예문KR": str(q.get("example_kr", "")).strip(),
                 "품사": current_pos_group,   # ✅ 그룹 저장
                 "유형": current_type,
             })
@@ -2693,8 +2691,6 @@ if st.session_state.wrong_list:
         word = _s(w.get("단어"))
         reading = _s(w.get("읽기"))
         meaning = _s(w.get("뜻"))
-        ex_jp = _s(w.get("예문JP"))
-        ex_kr = _s(w.get("예문KR"))
         mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
         pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
 
@@ -2722,8 +2718,6 @@ if st.session_state.wrong_list:
     <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
     <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
     <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
-    <div class="ans-row"><div class="ans-k">예문</div><div><b>{_esc(ex_jp)}</b><br/>{_esc(ex_kr)}</div></div>
-    {ex_block}
   </div>
 </div>
 """
