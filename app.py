@@ -2612,9 +2612,7 @@ if st.session_state.submitted:
   </div>
 </div>
 """
-
-# 카드 1개 높이(대충) — 내용 늘면 자동으로 스크롤 없이 보이도록 넉넉히
-components.html(card_html, height=190)
+            components.html(card_html, height=190)
 
         if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_bottom"):
             clear_question_widget_keys()
