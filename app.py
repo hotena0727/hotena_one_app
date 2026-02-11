@@ -43,11 +43,11 @@ import base64
 # ============================================================
 # ✅ Page Config + Paths
 # ============================================================
-st.set_page_config(page_title="왕초보 탈출 하테나일본어", layout="centered")
+st.set_page_config(page_title="왕초보탈출 하테나일본어", layout="centered")
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "words_beginner.csv"   # ✅ 왕초보 단어 CSV
-PATTERN_CSV_PATH = BASE_DIR / "data" / "required_patterns1.csv"
+PATTERN_CSV_PATH = BASE_DIR / "data" / "patterns_beginner.csv"
 APP_URL = "https://YOUR_STREAMLIT_APP_URL_HERE/"      # ✅ 이메일 인증 redirect용 (스트림릿 앱 주소로 교체)
 
 # ============================================================
