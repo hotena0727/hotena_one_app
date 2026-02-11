@@ -2506,14 +2506,6 @@ for idx, q in enumerate(st.session_state.quiz):
         unsafe_allow_html=True
     )
 
-    for idx, q in enumerate(st.session_state.quiz):
-    st.subheader(f"Q{idx+1}")
-
-    st.markdown(
-        f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
-        unsafe_allow_html=True
-    )
-
     # ✅ TTS A안: 단어(jp_word) 읽기 버튼
     tts_text = str(q.get("jp_word", "")).strip()
     if tts_text:
