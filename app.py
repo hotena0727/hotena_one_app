@@ -1144,7 +1144,7 @@ READ_KW = dict(
 def load_pool(csv_path_str: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path_str, **READ_KW)
 
-    required_cols = {"pos", "jp_word", "reading", "meaning"}
+    required_cols = {"level", "jp_word", "display_jp", "reading", "meaning", "pos"}
     missing = required_cols - set(df.columns)
     if missing:
         raise ValueError(f"CSV 필수 컬럼 누락: {sorted(list(missing))}")
@@ -1156,6 +1156,7 @@ def load_pool(csv_path_str: str) -> pd.DataFrame:
     df["jp_word"] = df["jp_word"].apply(_nfkc).str.strip()
     df["reading"] = df["reading"].apply(_nfkc).str.strip()
     df["meaning"] = df["meaning"].apply(_nfkc).str.strip()
+    df["display_jp"] = df["display_jp"].astype(str).str.strip()
 
     # 선택 컬럼
     if "example_jp" in df.columns:
@@ -1273,7 +1274,7 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
     return wrongs
 
 def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
-    jp = str(row.get("jp_word", "")).strip()
+    jp = str(row.get("display_jp", "")).strip()
     rd = str(row.get("reading", "")).strip()
     mn = str(row.get("meaning", "")).strip()
     pos = str(row.get("pos", "")).strip().lower()
