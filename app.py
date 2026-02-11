@@ -2594,7 +2594,7 @@ if st.session_state.submitted:
             mode = quiz_label_map.get(w.get("유형"), w.get("유형", ""))
             pos_label = POS_LABEL_MAP.get(w.get("품사"), w.get("품사", ""))
 
-                        card_html = f"""
+             card_html = f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
