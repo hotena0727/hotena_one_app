@@ -2595,148 +2595,23 @@ if st.session_state.submitted:
             pass
 
 # ============================================================
-# ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
-# - st.markdown() 대신 components.html()로 렌더 (마크다운 파서 우회)
+# ✅ 오답노트 (태그가 그대로 보이는 문제 해결판)
+# - components.html로 렌더 (마크다운 파서 우회)
 # ============================================================
-
-
-# (필수) build_quiz_from_wrongs 버그 1줄 수정도 같이 반영하세요.
-# 아래 함수 안의 잘못된 base_pos 참조를 retry_df로 바꿉니다.
-def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    wrong_words = []
-    for w in (wrong_list or []):
-        key = str(w.get("단어", "")).strip()
-        if key:
-            wrong_words.append(key)
-    wrong_words = list(dict.fromkeys(wrong_words))
-
-    if not wrong_words:
-        st.warning("현재 오답 노트가 비어 있어요. 🙂")
-        return []
-
-    pos_filters = get_pos_filters()
-    retry_df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].isin(wrong_words))
-    ].copy()
-
-    if len(retry_df) == 0:
-        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
-        st.stop()
-
-    retry_df = retry_df.sample(frac=1).reset_index(drop=True)
-
-    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외 (버그 수정)
-    if qtype == "reading":
-        retry_df = retry_df[retry_df["jp_word"].apply(_has_kanji)].copy()
-
-    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
-
-def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
-    keys = list(dict.fromkeys(keys))
-    if not keys:
-        st.warning("TOP10 단어가 비어 있어요.")
-        return []
-
-    pos_filters = get_pos_filters()
-    df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].astype(str).str.strip().isin(keys))
-    ].copy()
-
-    if qtype == "reading":
-        df = df[df["jp_word"].apply(_has_kanji)].copy()
-
-    if df.empty:
-        st.warning("TOP10 단어를 현재 풀(품사/기타 선택)에서 찾지 못했어요. (필터 조건 확인)")
-        return []
-
-    df = df.sample(frac=1).reset_index(drop=True)
-    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
-
-# ============================================================
-# ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
-#   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
-# ============================================================
-
 if st.session_state.wrong_list:
     st.subheader("❌ 오답 노트")
 
     def _s(v):
         return "" if v is None else str(v)
 
-    cards = []
-    for w in st.session_state.wrong_list:
-        no = _s(w.get("No"))
-        qtext = _s(w.get("문제"))
-        picked = _s(w.get("내 답"))
-        correct = _s(w.get("정답"))
-        word = _s(w.get("단어"))
-        reading = _s(w.get("읽기"))
-        meaning = _s(w.get("뜻"))
-        ex_jp = _s(w.get("예문JP"))
-        ex_kr = _s(w.get("예문KR"))
-        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
-        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
+    def _esc(x: str) -> str:
+        x = _s(x)
+        return (x.replace("&", "&amp;")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;")
+                 .replace('"', "&quot;")
+                 .replace("'", "&#39;"))
 
-        # ✅ HTML 안전처리(태그 깨짐/주입 방지)
-        def _esc(x: str) -> str:
-            x = _s(x)
-            return (x.replace("&", "&amp;")
-                     .replace("<", "&lt;")
-                     .replace(">", "&gt;")
-                     .replace('"', "&quot;")
-                     .replace("'", "&#39;"))
-
-        card_html = f"""
-<div class="jp">
-  <div class="wrong-card">
-    <div class="wrong-top">
-      <div class="wrong-left">
-        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
-        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
-      </div>
-      <div class="tag">오답</div>
-    </div>
-
-    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
-    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
-    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
-    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
-    <div class="ans-row"><div class="ans-k">예문</div><div><b>{_esc(ex_jp)}</b><br/>{_esc(ex_kr)}</div></div>
-    {ex_block}
-  </div>
-</div>
-"""
-        cards.append(card_html)
-
-    all_cards_html = "".join(cards)
-
-    # 카드 높이(대략) 계산: 카드 1개당 190~220px 정도면 안정적
-    height = 190 * len(cards) + 10   # ✅ 여백 최소화
-    height = max(190, min(height, 1200))
-
-
-        # ✅ 공통 스타일 (preview / more 에서 둘 다 써야 하므로 문자열로 분리)
     STYLE = """
 <style>
 .wrong-card{
@@ -2789,35 +2664,56 @@ if st.session_state.wrong_list:
 </style>
 """
 
-    def _render_cards(card_list: list[str], max_height: int = 650):
-        """카드 리스트를 components.html로 렌더"""
+    cards = []
+    for w in st.session_state.wrong_list:
+        no = _esc(w.get("No"))
+        qtext = _esc(w.get("문제"))
+        picked = _esc(w.get("내 답"))
+        correct = _esc(w.get("정답"))
+        word = _esc(w.get("단어"))
+        reading = _esc(w.get("읽기"))
+        meaning = _esc(w.get("뜻"))
+        ex_jp = _esc(w.get("예문JP"))
+        ex_kr = _esc(w.get("예문KR"))
+
+        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
+        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
+
+        card_html = f"""
+<div class="jp">
+  <div class="wrong-card">
+    <div class="wrong-top">
+      <div class="wrong-left">
+        <div class="wrong-title">Q{no}. {word}</div>
+        <div class="wrong-sub">{qtext} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
+      </div>
+      <div class="tag">오답</div>
+    </div>
+
+    <div class="ans-row"><div class="ans-k">내 답</div><div>{picked}</div></div>
+    <div class="ans-row"><div class="ans-k">정답</div><div><b>{correct}</b></div></div>
+    <div class="ans-row"><div class="ans-k">발음</div><div>{reading}</div></div>
+    <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
+    <div class="ans-row"><div class="ans-k">예문</div><div><b>{ex_jp}</b><br/>{ex_kr}</div></div>
+  </div>
+</div>
+"""
+        cards.append(card_html)
+
+    def _render_cards(card_list: list[str], max_height: int = 900):
         if not card_list:
             return
         html = "".join(card_list)
+        h = 200 * len(card_list) + 20
+        h = max(220, min(h, max_height))
+        components.html(textwrap.dedent(f"{STYLE}\n{html}"), height=h)
 
-        # 카드 1장당 높이(대략)
-        h = 190 * len(card_list) + 10
-        h = max(190, min(h, max_height))
-
-        components.html(
-            textwrap.dedent(f"""
-{STYLE}
-{html}
-"""),
-            height=h,
-        )
-
-    # ✅ 3개만 먼저 보여주기
     MAX_PREVIEW = 3
-    preview_cards = cards[:MAX_PREVIEW]
-    rest_cards = cards[MAX_PREVIEW:]
+    _render_cards(cards[:MAX_PREVIEW], max_height=700)
 
-    _render_cards(preview_cards, max_height=650)
-
-    # ✅ 3개 초과면 "더 보기"로 나머지 펼치기
-    if rest_cards:
-        with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
-            _render_cards(rest_cards, max_height=900)
+    if len(cards) > MAX_PREVIEW:
+        with st.expander(f"오답 더 보기 (+{len(cards)-MAX_PREVIEW}개)", expanded=False):
+            _render_cards(cards[MAX_PREVIEW:], max_height=1200)
 
 # ============================================================
 # ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
@@ -2836,14 +2732,18 @@ if st.session_state.get("submitted", False):
             st.rerun()
 
     with cB:
-        # 오답이 있을 때만 활성화(없으면 disabled)
         has_wrongs = bool(st.session_state.get("wrong_list"))
-        if st.button("❌ 틀린 문제만 다시 풀기", use_container_width=True, disabled=not has_wrongs, key="btn_retry_wrongs_bottom_global"):
+        if st.button(
+            "❌ 틀린 문제만 다시 풀기",
+            use_container_width=True,
+            disabled=not has_wrongs,
+            key="btn_retry_wrongs_bottom_global"
+        ):
             clear_question_widget_keys()
             retry_quiz = build_quiz_from_wrongs(
-                st.session_state.wrong_list,
-                st.session_state.quiz_type,
-                st.session_state.pos_group
+                wrong_list=st.session_state.wrong_list,
+                qtype=st.session_state.quiz_type,
+                pos_group=st.session_state.pos_group,
             )
             start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
             st.session_state["_scroll_top_once"] = True
