@@ -2510,8 +2510,8 @@ for idx, q in enumerate(st.session_state.quiz):
         )
 
     with cols[1]:
-        if st.button("🔊", key=f"tts_{st.session_state.quiz_version}_{idx}", help="발음 듣기"):
-            # play_tts(q["jp_word"])
+        if st.button("🔊 발음 듣기", key=f"tts_{q_no}", type="secondary"):
+            play_tts(question_word)
             pass
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
