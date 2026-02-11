@@ -18,8 +18,11 @@
 #      - adj_i: 보기 전부 끝이 'い'로 통일(동일 pos 풀에서)
 #      - adj_na: pos가 동일하므로 기본적으로 모양 찍기 난이도 상승(동사처럼 suffix 적용은 X)
 #   2) 제출 후 SFX: perfect / (0.7 이상) correct / (그 외) wrong
-#   3) ✅ 요청 반영: 부사/조사/접속사/감탄사(adv, particle, conj, interj) 에서는
-#      - 유형을 "뜻, 한→일" 2개만 노출 (발음 숨김)
+#   3) ✅ B안 반영:
+#      - 상단 품사 버튼: noun/verb/adj_i/adj_na/other(기타)
+#      - 기타 선택 시: 부사/조사/접속사/감탄사 체크박스(expander) + "적용(새 문제)" 버튼
+#      - 기타에서는 유형을 "뜻, 한→일" 2개만 노출 (발음 숨김)
+#   4) ✅ 필수패턴: "퀴즈"가 아니라 "카드"로(품사 그룹별) expander 제공
 # ============================================================
 
 from __future__ import annotations
@@ -57,14 +60,19 @@ KST_TZ = "Asia/Seoul"
 N = 10  # 한 번에 10문항
 
 # ============================================================
-# ✅ POS / QUIZ TYPES
+# ✅ POS / QUIZ TYPES  (✅ B안: pos_group + other 세부 선택)
 # ============================================================
-POS_OPTIONS = ["noun", "verb", "adj_i", "adj_na", "adv", "particle", "conj", "interj"]
+POS_GROUP_OPTIONS = ["noun", "verb", "adj_i", "adj_na", "other"]
 POS_LABEL_MAP = {
     "noun": "명사",
     "verb": "동사",
     "adj_i": "い형용사",
     "adj_na": "な형용사",
+    "other": "기타",
+}
+
+OTHER_POS_OPTIONS = ["adv", "particle", "conj", "interj"]
+OTHER_POS_LABEL_MAP = {
     "adv": "부사",
     "particle": "조사",
     "conj": "접속사",
@@ -79,24 +87,94 @@ quiz_label_map = {
 QUIZ_TYPES_USER = ["reading", "meaning", "kr2jp"]
 QUIZ_TYPES_ADMIN = ["reading", "meaning", "kr2jp"]  # 필요시 관리자 전용 유형 추가 가능
 
-# ✅ 요청 반영: 이 품사들은 발음(reading) 숨김
-POS_ONLY_2TYPES = {"adv", "particle", "conj", "interj"}
+# ✅ 요청 반영: 기타(adv/particle/conj/interj)에서는 발음(reading) 숨김 → 그룹 단위로 other만 제한
+POS_ONLY_2TYPES = {"other"}
 
 # ============================================================
-# ✅ Session Defaults
+# ✅ 필수패턴(카드) - 최소 샘플(원하면 나중에 확장)
+# ============================================================
+PATTERNS = {
+    "noun": [
+        {"title": "～です", "jp": "これはXです。", "kr": "이것은 X입니다.",
+         "ex": [("これは本です。", "이것은 책입니다."), ("これは私のかばんです。", "이것은 제 가방입니다.")]}
+    ],
+    "verb": [
+        {"title": "～ます", "jp": "毎日Xます。", "kr": "매일 ~합니다.",
+         "ex": [("毎日勉強します。", "매일 공부합니다."), ("駅まで歩きます。", "역까지 걷습니다.")]}
+    ],
+    "adj_i": [
+        {"title": "い形容詞 + です", "jp": "今日はXいです。", "kr": "오늘은 ~해요.",
+         "ex": [("今日は寒いです。", "오늘은 추워요."), ("この店は安いです。", "이 가게는 싸요.")]}
+    ],
+    "adj_na": [
+        {"title": "な形容詞 + です", "jp": "この町はXです。", "kr": "이 동네는 ~해요.",
+         "ex": [("この町は静かです。", "이 동네는 조용해요."), ("彼は親切です。", "그는 친절해요.")]}
+    ],
+    "other": [
+        {"title": "だから / でも", "jp": "だから、X。 / でも、X。", "kr": "그래서 / 하지만",
+         "ex": [("だから、行きません。", "그래서 안 가요."), ("でも、行きたいです。", "하지만 가고 싶어요.")]}
+    ],
+}
+
+def render_pattern_cards():
+    g = str(st.session_state.get("pos_group", "noun")).lower().strip()
+    items = PATTERNS.get(g, [])
+    if not items:
+        st.caption("이 품사에는 아직 필수패턴이 준비되지 않았어요 🙂")
+        return
+
+    st.markdown("""
+<style>
+.pat-card{
+  border:1px solid rgba(120,120,120,0.22);
+  border-radius:16px;
+  padding:14px 14px;
+  margin:10px 0;
+  background: rgba(255,255,255,0.02);
+}
+.pat-title{ font-weight:900; font-size:16px; margin-bottom:6px; }
+.pat-main{ font-size:14px; line-height:1.5; }
+.pat-sub{ opacity:.75; font-size:13px; margin-top:6px; }
+.pat-ex{ margin-top:10px; font-size:13px; line-height:1.55; }
+.pat-ex b{ font-weight:900; }
+</style>
+""", unsafe_allow_html=True)
+
+    for it in items:
+        ex_html = ""
+        for jp, kr in it.get("ex", [])[:2]:
+            ex_html += f"<div class='pat-ex'><b>{jp}</b><br/>{kr}</div>"
+
+        st.markdown(f"""
+<div class="jp">
+  <div class="pat-card">
+    <div class="pat-title">📌 {it.get("title","")}</div>
+    <div class="pat-main"><b>{it.get("jp","")}</b></div>
+    <div class="pat-sub">{it.get("kr","")}</div>
+    {ex_html}
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ============================================================
+# ✅ Session Defaults  (✅ pos → pos_group / 기타 체크 세트)
 # ============================================================
 if "quiz_type" not in st.session_state:
     st.session_state.quiz_type = "meaning"  # 왕초보는 뜻부터 추천
-if "pos" not in st.session_state:
-    st.session_state.pos = "noun"
+if "pos_group" not in st.session_state:
+    st.session_state.pos_group = "noun"
+
+if "other_pos_selected" not in st.session_state:
+    # ✅ 처음엔 기타 전체 체크
+    st.session_state.other_pos_selected = set(["adv", "particle", "conj", "interj"])
 
 if st.session_state.quiz_type not in QUIZ_TYPES_USER:
     st.session_state.quiz_type = "meaning"
-if st.session_state.pos not in POS_OPTIONS:
-    st.session_state.pos = "noun"
+if st.session_state.pos_group not in POS_GROUP_OPTIONS:
+    st.session_state.pos_group = "noun"
 
-# ✅ (안전) 제한 품사인데 reading이 잡혀 있으면 meaning으로 강제
-if str(st.session_state.get("pos", "noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+# ✅ (안전) 제한 그룹인데 reading이 잡혀 있으면 meaning으로 강제
+if str(st.session_state.get("pos_group", "noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
     st.session_state.quiz_type = "meaning"
 
 # ============================================================
@@ -403,11 +481,22 @@ def clear_question_widget_keys():
         st.session_state.pop(k, None)
 
 # ============================================================
+# ✅ POS filters (✅ B안 핵심)
+# ============================================================
+def get_pos_filters() -> list[str]:
+    g = str(st.session_state.get("pos_group", "noun")).strip().lower()
+    if g == "other":
+        sel = st.session_state.get("other_pos_selected", set())
+        sel = [x for x in OTHER_POS_OPTIONS if x in sel]
+        return sel if sel else list(OTHER_POS_OPTIONS)
+    return [g]
+
+# ============================================================
 # ✅ Key helpers (정복/제외/배너)
 # ============================================================
 def mastery_key(qtype: str | None = None, pos: str | None = None) -> str:
     qt = qtype or st.session_state.get("quiz_type", "meaning")
-    ps = (pos or st.session_state.get("pos", "noun")).lower().strip()
+    ps = (pos or st.session_state.get("pos_group", "noun")).lower().strip()
     return f"{ps}__{qt}"
 
 def is_admin() -> bool:
@@ -544,7 +633,8 @@ def clear_auth_everywhere():
         "_sb_authed", "_sb_authed_token",
         "excluded_wrong_words",
         "mastery_banner_shown", "mastery_done",
-        "pos",
+        "pos_group",
+        "other_pos_selected",
     ]:
         st.session_state.pop(k, None)
 
@@ -665,7 +755,7 @@ def save_attempt_to_db(sb_authed, user_id, user_email, pos, quiz_type, quiz_len,
     payload = {
         "user_id": user_id,
         "user_email": user_email,
-        "level": str(pos),          # ✅ level 컬럼에 pos 저장
+        "level": str(pos),          # ✅ level 컬럼에 pos_group 저장
         "pos_mode": str(quiz_type), # ✅ pos_mode 컬럼에 유형 저장
         "quiz_len": int(quiz_len),
         "score": int(score),
@@ -715,7 +805,7 @@ def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: 
             {
                 "word_key": word_key,
                 "level": "BEGINNER",
-                "pos": str(pos),
+                "pos": str(pos),            # ✅ pos_group 저장(통계에서는 그룹 기준)
                 "quiz_type": str(quiz_type),
                 "is_correct": bool(is_correct),
             }
@@ -723,14 +813,15 @@ def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: 
     return items
 
 # ============================================================
-# ✅ Progress (DB 저장/복원)
+# ✅ Progress (DB 저장/복원)  (✅ pos_group + 기타 체크 저장)
 # ============================================================
 def save_progress_to_db(sb_authed, user_id: str):
     if "quiz" not in st.session_state or "answers" not in st.session_state:
         return
 
     payload = {
-        "pos": st.session_state.get("pos"),
+        "pos_group": st.session_state.get("pos_group"),
+        "other_pos_selected": list(st.session_state.get("other_pos_selected", set())),
         "quiz_type": st.session_state.get("quiz_type"),
         "quiz_version": int(st.session_state.get("quiz_version", 0) or 0),
         "quiz": st.session_state.get("quiz"),
@@ -768,20 +859,27 @@ def restore_progress_from_db(sb_authed, user_id: str):
     if not progress:
         return
 
-    st.session_state.pos = progress.get("pos", st.session_state.get("pos", "noun"))
+    # ✅ 구버전(progress에 pos가 있던 경우)도 최대한 흡수
+    restored_group = progress.get("pos_group") or progress.get("pos") or st.session_state.get("pos_group", "noun")
+    st.session_state.pos_group = restored_group
+
+    other_sel = progress.get("other_pos_selected", None)
+    if isinstance(other_sel, list):
+        st.session_state.other_pos_selected = set([x for x in other_sel if x in OTHER_POS_OPTIONS])
+
     st.session_state.quiz_type = progress.get("quiz_type", st.session_state.get("quiz_type", "meaning"))
     st.session_state.quiz_version = int(progress.get("quiz_version", st.session_state.get("quiz_version", 0) or 0))
     st.session_state.quiz = progress.get("quiz", st.session_state.get("quiz"))
     st.session_state.answers = progress.get("answers", st.session_state.get("answers"))
     st.session_state.submitted = bool(progress.get("submitted", st.session_state.get("submitted", False)))
 
-    if st.session_state.pos not in POS_OPTIONS:
-        st.session_state.pos = "noun"
+    if st.session_state.pos_group not in POS_GROUP_OPTIONS:
+        st.session_state.pos_group = "noun"
     if st.session_state.quiz_type not in QUIZ_TYPES_USER:
         st.session_state.quiz_type = "meaning"
 
-    # ✅ 제한 품사면 reading 복원되더라도 meaning으로 강제
-    if str(st.session_state.get("pos", "noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+    # ✅ 제한 그룹이면 reading 복원되더라도 meaning으로 강제
+    if str(st.session_state.get("pos_group", "noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
         st.session_state.quiz_type = "meaning"
 
     if isinstance(st.session_state.quiz, list):
@@ -795,11 +893,11 @@ def restore_progress_from_db(sb_authed, user_id: str):
 def get_available_quiz_types() -> list[str]:
     return QUIZ_TYPES_ADMIN if is_admin() else QUIZ_TYPES_USER
 
-# ✅ (신규) pos에 따라 가능한 유형 필터
-def get_available_quiz_types_for_pos(pos: str) -> list[str]:
-    pos = str(pos).strip().lower()
+# ✅ (신규) pos_group에 따라 가능한 유형 필터
+def get_available_quiz_types_for_pos(pos_group: str) -> list[str]:
+    pos_group = str(pos_group).strip().lower()
     base = get_available_quiz_types()
-    if pos in POS_ONLY_2TYPES:
+    if pos_group in POS_ONLY_2TYPES:
         return [t for t in base if t in ("meaning", "kr2jp")]
     return base
 
@@ -1243,16 +1341,11 @@ def _is_suru_verb(reading: str) -> bool:
 def _jp_okurigana_suffix(jp_word: str) -> str:
     """
     jp_word 끝에서 '오쿠리가나(히라/가타카나 연속 꼬리)'를 뽑아 히라가나로 반환.
-    예) 直す -> す
-        立てる -> てる
-        掃除する -> する
-        おもう(한자 없음) -> おもう (하지만 이 경우는 크게 의미 없으니 뒤에서 보정)
     """
     s = _nfkc_str(jp_word)
     if not s:
         return ""
     i = len(s)
-    # 뒤에서부터 kana(히라/가타) 연속 부분을 수집
     while i > 0:
         ch = s[i-1]
         code = ord(ch)
@@ -1271,38 +1364,25 @@ def _safe_suffix_hira(x: str, n: int) -> str:
     return xh[-n:] if len(xh) >= n else xh
 
 def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
-    """
-    ✅ 새 규칙
-    1) 끝 모양을 최대한 맞춘다.
-    2) jp_word의 오쿠리가나가 2글자면, 보기 reading 끝도 2글자 동일을 최우선.
-       (가능한 만큼 채우고, 부족하면 1글자 동일로 보강)
-    3) 그래도 부족하면 "가장 비슷한 끝" 후보로 채우되, 완전 엉뚱한 끝은 최대한 늦게.
-    """
     correct_nf = _nfkc_str(correct)
     cands = _uniq([_nfkc_str(c) for c in candidates if _nfkc_str(c) and _nfkc_str(c) != correct_nf])
     if len(cands) < k:
         return []
 
-    # 정답/후보는 히라가나 기준으로 비교
     correct_h = _to_hira(correct_nf)
 
-    # 오쿠리가나(꼬리) 추출
     okuri = _jp_okurigana_suffix(jp_word)
     okuri = _to_hira(okuri)
 
-    # (중요) 한자 없는 단어는 okuri가 전체가 되어버릴 수 있음 → "끝 비교용"으로만 쓰자
     ok2 = okuri[-2:] if len(okuri) >= 2 else ""
     ok1 = okuri[-1:] if len(okuri) >= 1 else ""
 
-    # 정답의 끝도 참고
     cor2 = _safe_suffix_hira(correct_h, 2)
     cor1 = _safe_suffix_hira(correct_h, 1)
 
-    # “2글자 모양” 타겟: (오쿠리 2글자 존재하면 그걸 우선) 없으면 정답 끝2글자
     target2 = ok2 if ok2 else cor2
     target1 = ok1 if ok1 else cor1
 
-    # 0) する(특수): "する" 꼬리면 우선적으로 する로 맞추기
     want_suru = (target2 == "する") or correct_h.endswith("する")
 
     def score(c: str) -> int:
@@ -1353,6 +1433,7 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     ex_jp = str(row.get("example_jp", "")).strip()
     ex_kr = str(row.get("example_kr", "")).strip()
 
+    # ✅ 같은 실제 pos 풀
     pool_pos = pool[pool["pos"].astype(str).str.strip().str.lower() == pos].copy()
 
     if qtype == "reading":
@@ -1414,11 +1495,11 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
         "example_kr": ex_kr,
     }
 
-def build_quiz(qtype: str, pos: str) -> list[dict]:
-    # ✅ 안전장치: 제한 품사에서는 reading 강제 금지
-    pos = str(pos).strip().lower()
+def build_quiz(qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 안전장치: 제한 그룹에서는 reading 강제 금지
+    pos_group = str(pos_group).strip().lower()
     qtype = str(qtype).strip()
-    if pos in POS_ONLY_2TYPES and qtype == "reading":
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
         qtype = "meaning"
 
     ensure_pool_ready()
@@ -1428,13 +1509,14 @@ def build_quiz(qtype: str, pos: str) -> list[dict]:
 
     pool = st.session_state["_pool"]
 
-    base_pos = pool[pool["pos"].astype(str).str.strip().str.lower() == pos].copy()
+    pos_filters = get_pos_filters()
+    base_pos = pool[pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters)].copy()
 
     if len(base_pos) < N:
-        st.warning(f"{POS_LABEL_MAP.get(pos,pos)} 단어가 부족합니다. (현재 {len(base_pos)}개 / 필요 {N}개)")
+        st.warning(f"{POS_LABEL_MAP.get(pos_group,pos_group)} 단어가 부족합니다. (현재 {len(base_pos)}개 / 필요 {N}개)")
         return []
 
-    k = mastery_key(qtype=qtype, pos=pos)
+    k = mastery_key(qtype=qtype, pos=pos_group)
     mastered = st.session_state.get("mastered_words", {}).get(k, set())
     excluded = st.session_state.get("excluded_wrong_words", {}).get(k, set())
 
@@ -1460,11 +1542,11 @@ def build_quiz(qtype: str, pos: str) -> list[dict]:
     sampled = base.sample(n=N, replace=False).reset_index(drop=True)
     return [make_question(sampled.iloc[i], qtype, pool) for i in range(N)]
 
-def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos: str) -> list:
+def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list:
     # ✅ 안전장치
-    pos = str(pos).strip().lower()
+    pos_group = str(pos_group).strip().lower()
     qtype = str(qtype).strip()
-    if pos in POS_ONLY_2TYPES and qtype == "reading":
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
         qtype = "meaning"
 
     ensure_pool_ready()
@@ -1481,10 +1563,12 @@ def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos: str) -> list:
         st.warning("현재 오답 노트가 비어 있어요. 🙂")
         return []
 
+    pos_filters = get_pos_filters()
     retry_df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower() == str(pos).lower().strip())
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
         & (pool["jp_word"].isin(wrong_words))
     ].copy()
+
     if len(retry_df) == 0:
         st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
         st.stop()
@@ -1838,19 +1922,19 @@ user_id = user.id
 user_email = getattr(user, "email", None) or st.session_state.get("login_email")
 sb_authed = get_authed_sb()
 
-# ✅ pos 기반 available_types 적용
+# ✅ pos_group 기반 available_types 적용
 try:
     if sb_authed is not None:
-        available_types = get_available_quiz_types_for_pos(st.session_state.get("pos", "noun"))
+        available_types = get_available_quiz_types_for_pos(st.session_state.get("pos_group", "noun"))
     else:
         base_types = QUIZ_TYPES_USER
-        pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
-        available_types = [t for t in base_types if t in ("meaning", "kr2jp")] if pos_now in POS_ONLY_2TYPES else base_types
+        g_now = str(st.session_state.get("pos_group", "noun")).lower().strip()
+        available_types = [t for t in base_types if t in ("meaning", "kr2jp")] if g_now in POS_ONLY_2TYPES else base_types
 except Exception:
-    pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
-    available_types = ["meaning", "kr2jp"] if pos_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
+    g_now = str(st.session_state.get("pos_group", "noun")).lower().strip()
+    available_types = ["meaning", "kr2jp"] if g_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
 
-# ✅ 현재 선택된 유형이 pos에서 허용되지 않으면 meaning으로 강제
+# ✅ 현재 선택된 유형이 pos_group에서 허용되지 않으면 meaning으로 강제
 if st.session_state.get("quiz_type") not in available_types:
     st.session_state.quiz_type = "meaning"
 
@@ -1861,9 +1945,9 @@ if sb_authed is not None and not st.session_state.get("progress_restored"):
         pass
     st.session_state.progress_restored = True
 
-# ✅ 복원 후에도 pos/available_types 재동기화
+# ✅ 복원 후에도 pos_group/available_types 재동기화
 try:
-    available_types = get_available_quiz_types_for_pos(st.session_state.get("pos", "noun")) if sb_authed is not None else available_types
+    available_types = get_available_quiz_types_for_pos(st.session_state.get("pos_group", "noun")) if sb_authed is not None else available_types
 except Exception:
     pass
 if st.session_state.get("quiz_type") not in available_types:
@@ -1980,22 +2064,20 @@ ensure_excluded_wrong_words_shape()
 ensure_mastery_banner_shape()
 
 # ============================================================
-# ✅ 상단 UI: 품사 버튼 → 유형 버튼 → 캡션 → divider
+# ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
 # ============================================================
-def on_pick_pos(ps: str):
+def on_pick_pos_group(ps: str):
     ps = str(ps).strip().lower()
-    if ps == st.session_state.pos:
+    if ps == st.session_state.pos_group:
         return
-    st.session_state.pos = ps
+    st.session_state.pos_group = ps
 
-    # ✅ pos 제한이면 reading 선택 상태를 자동 해제
+    # ✅ 제한 그룹이면 reading 선택 상태를 자동 해제
     if ps in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
         st.session_state.quiz_type = "meaning"
 
-    # ✅ pos 변경에 따라 available_types 재계산(전역 변수 업데이트 목적)
-    # (Streamlit rerun 환경이라 아래에서 다시 그려질 때 반영됨)
     clear_question_widget_keys()
-    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
+    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
     st.session_state["_scroll_top_once"] = True
 
@@ -2006,42 +2088,68 @@ def on_pick_qtype(qt: str):
     st.session_state.quiz_type = qt
 
     clear_question_widget_keys()
-    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
+    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
     st.session_state["_scroll_top_once"] = True
 
-# ✅ 현재 pos 기준으로 유형 리스트 재계산(표시 직전에!)
+# ✅ 현재 pos_group 기준으로 유형 리스트 재계산(표시 직전에!)
 try:
     if sb_authed is not None:
-        available_types = get_available_quiz_types_for_pos(st.session_state.get("pos", "noun"))
+        available_types = get_available_quiz_types_for_pos(st.session_state.get("pos_group", "noun"))
     else:
-        pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
-        available_types = ["meaning", "kr2jp"] if pos_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
+        g_now = str(st.session_state.get("pos_group", "noun")).lower().strip()
+        available_types = ["meaning", "kr2jp"] if g_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
 except Exception:
-    pos_now = str(st.session_state.get("pos", "noun")).lower().strip()
-    available_types = ["meaning", "kr2jp"] if pos_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
+    g_now = str(st.session_state.get("pos_group", "noun")).lower().strip()
+    available_types = ["meaning", "kr2jp"] if g_now in POS_ONLY_2TYPES else QUIZ_TYPES_USER
 
-# ✅ 선택된 유형이 현재 pos에서 허용되지 않으면 meaning으로 강제
+# ✅ 선택된 유형이 현재 pos_group에서 허용되지 않으면 meaning으로 강제
 if st.session_state.get("quiz_type") not in available_types:
     st.session_state.quiz_type = "meaning"
 
 st.markdown('<div class="qtypewrap">', unsafe_allow_html=True)
 
-pos_cols = st.columns(4, gap="small")
-for i, ps in enumerate(POS_OPTIONS):
-    with pos_cols[i % 4]:
-        is_sel = (ps == st.session_state.pos)
+# ✅ 품사 그룹 버튼(5개)
+pos_cols = st.columns(5, gap="small")
+for i, ps in enumerate(POS_GROUP_OPTIONS):
+    with pos_cols[i]:
+        is_sel = (ps == st.session_state.pos_group)
         st.button(
             ("✅ " if is_sel else "") + POS_LABEL_MAP.get(ps, ps),
             use_container_width=True,
             type=("primary" if is_sel else "secondary"),
-            key=f"btn_pos_{ps}",
-            on_click=on_pick_pos,
+            key=f"btn_posg_{ps}",
+            on_click=on_pick_pos_group,
             args=(ps,),
         )
 
 st.markdown('<div class="qtype_hint jp">✨품사를 선택하세요</div>', unsafe_allow_html=True)
 
+# ✅ B안: 기타 선택 시에만 세부 선택 expander + 적용 버튼
+if st.session_state.pos_group == "other":
+    with st.expander("기타 세부 선택 (부사/조사/접속사/감탄사)", expanded=True):
+        cols = st.columns(2)
+        for j, p in enumerate(OTHER_POS_OPTIONS):
+            with cols[j % 2]:
+                checked = (p in st.session_state.other_pos_selected)
+                new_checked = st.checkbox(OTHER_POS_LABEL_MAP[p], value=checked, key=f"chk_other_{p}")
+                if new_checked:
+                    st.session_state.other_pos_selected.add(p)
+                else:
+                    st.session_state.other_pos_selected.discard(p)
+
+        if st.button("🔄 기타 선택 적용(새 문제)", use_container_width=True, key="btn_apply_other"):
+            # ✅ 기타는 reading 불가
+            if st.session_state.quiz_type == "reading":
+                st.session_state.quiz_type = "meaning"
+
+            clear_question_widget_keys()
+            new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+            start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+
+# ✅ 유형 버튼
 type_cols = st.columns(len(available_types), gap="small")
 for i, qt in enumerate(available_types):
     with type_cols[i]:
@@ -2057,6 +2165,10 @@ for i, qt in enumerate(available_types):
 
 st.markdown('<div class="qtype_hint jp">✨유형을 선택하세요</div>', unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
+
+# ✅ 필수패턴(카드)
+with st.expander("📌 필수패턴 (카드로 빠르게 익히기)", expanded=False):
+    render_pattern_cards()
 
 st.markdown('<div class="tight-divider">', unsafe_allow_html=True)
 st.divider()
@@ -2075,7 +2187,7 @@ with cbtn1:
             st.rerun()
 
         clear_question_widget_keys()
-        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
+        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
@@ -2088,15 +2200,15 @@ with cbtn2:
         st.session_state.mastery_banner_shown[k_now] = False
         st.session_state.mastery_done[k_now] = False
 
-        # ✅ 제한 품사면 quiz_type 방어
-        if str(st.session_state.get("pos","noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
+        # ✅ 제한 그룹이면 quiz_type 방어
+        if str(st.session_state.get("pos_group","noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
             st.session_state.quiz_type = "meaning"
 
         clear_question_widget_keys()
-        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
+        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
 
-        st.success(f"초기화 완료 (품사: {POS_LABEL_MAP.get(st.session_state.pos, st.session_state.pos)} / 유형: {quiz_label_map[st.session_state.quiz_type]})")
+        st.success(f"초기화 완료 (품사: {POS_LABEL_MAP.get(st.session_state.pos_group, st.session_state.pos_group)} / 유형: {quiz_label_map[st.session_state.quiz_type]})")
         st.session_state["_scroll_top_once"] = True
         st.rerun()
 
@@ -2114,7 +2226,7 @@ if "quiz" not in st.session_state or not isinstance(st.session_state.quiz, list)
 is_mastered_done = bool(st.session_state.get("mastery_done", {}).get(k_now, False))
 if (not is_mastered_done) and len(st.session_state.quiz) == 0:
     clear_question_widget_keys()
-    st.session_state.quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos) or []
+    st.session_state.quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group) or []
     st.session_state.submitted = False
 
 if len(st.session_state.quiz) == 0:
@@ -2179,7 +2291,7 @@ if st.session_state.submitted:
     ensure_excluded_wrong_words_shape()
 
     current_type = st.session_state.quiz_type
-    current_pos = st.session_state.pos
+    current_pos_group = st.session_state.pos_group
     k_now = mastery_key()
 
     score = 0
@@ -2203,7 +2315,7 @@ if st.session_state.submitted:
                 "단어": str(q.get("jp_word", "")).strip(),
                 "읽기": str(q.get("reading", "")).strip(),
                 "뜻": str(q.get("meaning", "")).strip(),
-                "품사": current_pos,
+                "품사": current_pos_group,   # ✅ 그룹 저장
                 "유형": current_type,
             })
 
@@ -2238,7 +2350,7 @@ if st.session_state.submitted:
                     sb_authed=sb_authed_local,
                     user_id=user_id,
                     user_email=user_email,
-                    pos=current_pos,
+                    pos=current_pos_group,   # ✅ 그룹 저장
                     quiz_type=current_type,
                     quiz_len=quiz_len,
                     score=score,
@@ -2257,7 +2369,7 @@ if st.session_state.submitted:
                     quiz=st.session_state.quiz,
                     answers=st.session_state.answers,
                     quiz_type=current_type,
-                    pos=current_pos,
+                    pos=current_pos_group,  # ✅ 그룹 기준
                 )
                 if items:
                     run_db(lambda: sb_authed_local.rpc("record_word_results_bulk", {"p_items": items}).execute())
@@ -2360,14 +2472,18 @@ if st.session_state.submitted:
 
         if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_bottom"):
             clear_question_widget_keys()
-            retry_quiz = build_quiz_from_wrongs(st.session_state.wrong_list, st.session_state.quiz_type, st.session_state.pos)
+            retry_quiz = build_quiz_from_wrongs(
+                st.session_state.wrong_list,
+                st.session_state.quiz_type,
+                st.session_state.pos_group
+            )
             start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
             st.session_state["_scroll_top_once"] = True
             st.rerun()
 
     if st.button("✅ 다음 10문항 시작하기", type="primary", use_container_width=True, key="btn_next_10"):
         clear_question_widget_keys()
-        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
+        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
