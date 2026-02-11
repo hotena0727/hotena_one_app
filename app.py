@@ -2523,8 +2523,6 @@ if st.session_state.submitted:
                 "단어": str(q.get("jp_word", "")).strip(),
                 "읽기": str(q.get("reading", "")).strip(),
                 "뜻": str(q.get("meaning", "")).strip(),
-                "예문JP": str(q.get("example_jp", "")).strip(),   # ✅ 추가
-                "예문KR": str(q.get("example_kr", "")).strip(),   # ✅ 추가
                 "품사": current_pos_group,   # ✅ 그룹 저장
                 "유형": current_type,
             })
@@ -2691,16 +2689,8 @@ if st.session_state.wrong_list:
         picked = _s(w.get("내 답"))
         correct = _s(w.get("정답"))
         word = _s(w.get("단어"))
-        ex_jp = _s(w.get("예문JP"))
-        ex_kr = _s(w.get("예문KR"))
-
-        ex_block = ""
-        if ex_jp or ex_kr:
-            ex_block = f"""
-            <div class="ans-row"><div class="ans-k">예문</div><div><b>{_esc(ex_jp)}</b></div></div>
-            <div class="ans-row"><div class="ans-k"></div><div>{_esc(ex_kr)}</div></div>
-            """
-
+        reading = _s(w.get("읽기"))
+        meaning = _s(w.get("뜻"))
         mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
         pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
 
@@ -2720,7 +2710,6 @@ if st.session_state.wrong_list:
       <div class="wrong-left">
         <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
         <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
-        {ex_block}
       </div>
       <div class="tag">오답</div>
     </div>
