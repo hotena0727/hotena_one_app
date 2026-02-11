@@ -10,6 +10,14 @@
 # ✅ CSV (data/words_beginner.csv) 필수 컬럼(최종):
 #   level, pos, jp_word, reading, meaning, example_jp, example_kr
 #   - 문제는 jp_word(한자 포함 단어)에서 뽑음
+#
+# ✅ 이번 수정 반영:
+#   1) 발음(読み) 문제에서 "보기 모양"으로 찍기 방지:
+#      - verb: 가능한 한 '끝 2글자(히라가나 기준)' 동일 → 부족하면 '끝 1글자' 동일
+#      - verb: する 동사는 보기 4개 모두 '～する'로 통일
+#      - adj_i: 보기 전부 끝이 'い'로 통일(동일 pos 풀에서)
+#      - adj_na: pos가 동일하므로 기본적으로 모양 찍기 난이도 상승(동사처럼 suffix 적용은 X)
+#   2) 제출 후 SFX: perfect / (0.7 이상) correct / (그 외) wrong
 # ============================================================
 
 from __future__ import annotations
@@ -393,6 +401,25 @@ def mastery_key(qtype: str | None = None, pos: str | None = None) -> str:
     ps = (pos or st.session_state.get("pos", "noun")).lower().strip()
     return f"{ps}__{qt}"
 
+def is_admin() -> bool:
+    cached = st.session_state.get("is_admin_cached")
+    if cached is not None:
+        return bool(cached)
+
+    u = st.session_state.get("user")
+    if u is None:
+        st.session_state["is_admin_cached"] = False
+        return False
+
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is None:
+        st.session_state["is_admin_cached"] = False
+        return False
+
+    val = fetch_is_admin_from_db(sb_authed_local, u.id)
+    st.session_state["is_admin_cached"] = val
+    return bool(val)
+
 def ensure_mastered_words_shape():
     if "mastered_words" not in st.session_state or not isinstance(st.session_state.mastered_words, dict):
         st.session_state.mastered_words = {}
@@ -752,25 +779,6 @@ def restore_progress_from_db(sb_authed, user_id: str):
 # ============================================================
 # ✅ Admin
 # ============================================================
-def is_admin() -> bool:
-    cached = st.session_state.get("is_admin_cached")
-    if cached is not None:
-        return bool(cached)
-
-    u = st.session_state.get("user")
-    if u is None:
-        st.session_state["is_admin_cached"] = False
-        return False
-
-    sb_authed_local = get_authed_sb()
-    if sb_authed_local is None:
-        st.session_state["is_admin_cached"] = False
-        return False
-
-    val = fetch_is_admin_from_db(sb_authed_local, u.id)
-    st.session_state["is_admin_cached"] = val
-    return bool(val)
-
 def get_available_quiz_types() -> list[str]:
     return QUIZ_TYPES_ADMIN if is_admin() else QUIZ_TYPES_USER
 
@@ -1203,49 +1211,67 @@ def _uniq(xs):
             out.append(x)
     return out
 
-def _last_char(x) -> str:
+def _suffix_kana(x: str, n: int) -> str:
     s = _to_hira(_nfkc_str(x))
-    return s[-1] if s else ""
+    return s[-n:] if len(s) >= n else s
+
+def _is_suru_verb(reading: str) -> bool:
+    r = _to_hira(_nfkc_str(reading))
+    return r.endswith("する")
 
 def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
-    def _suffix(x: str, n: int) -> str:
-        s = _to_hira(_nfkc_str(x))
-        return s[-n:] if len(s) >= n else s
-
+    """
+    ✅ '발음(読み)' 오답 규칙
+    - verb:
+      1) correct가 '～する'면: 오답도 전부 '～する'에서만 뽑기
+      2) 그 외: (가능하면) 끝 2글자 동일 → 부족하면 끝 1글자 동일
+    - adj_i: 끝이 'い'로 통일(동일 pos 풀에서 뽑히므로 기본 충족, 그래도 suffix로 살짝 강화)
+    - adj_na: pos로만 제한(끝 글자 규칙 강제 X)
+    """
     correct_nf = _nfkc_str(correct)
+    pos = (pos or "").strip().lower()
+
+    # 정리된 후보(정답 제외)
     cands = _uniq([_nfkc_str(c) for c in candidates if _nfkc_str(c) and _nfkc_str(c) != correct_nf])
     if len(cands) < k:
         return []
 
-    strict_pos = {"verb", "adj_i", "adj_na"}
+    # ✅ verb: する 동사면 무조건 する로만
+    if pos == "verb" and _is_suru_verb(correct_nf):
+        suru_only = [c for c in cands if _is_suru_verb(c)]
+        if len(suru_only) >= k:
+            return random.sample(suru_only, k)
+        # 부족하면 그냥 fallback (그래도 pos가 verb인 풀에서 오는 후보라 크게 문제는 없음)
+        # 하지만 "する 찍기"가 다시 생길 수 있으니, 여기까지 부족한 경우는 데이터가 너무 적은 케이스
+        return random.sample(cands, k)
 
-    s1 = _suffix(correct_nf, 1)
-    s2 = _suffix(correct_nf, 2)
+    # ✅ verb: 끝 2 → 끝 1 우선
+    if pos == "verb":
+        s2 = _suffix_kana(correct_nf, 2)
+        s1 = _suffix_kana(correct_nf, 1)
 
-    if pos in strict_pos:
-        same2 = [c for c in cands if _suffix(c, 2) == s2]
-        same1 = [c for c in cands if _suffix(c, 1) == s1]
-        pool = _uniq(same2 + same1 + cands)
+        same2 = [c for c in cands if _suffix_kana(c, 2) == s2]
+        if len(same2) >= k:
+            return random.sample(same2, k)
+
+        same1 = [c for c in cands if _suffix_kana(c, 1) == s1]
+        pool = _uniq(same2 + same1)
         if len(pool) >= k:
             return random.sample(pool, k)
 
-    base = cands[:]
-    random.shuffle(base)
-    wrongs, seen_last = [], set()
-    for c in base:
-        lc = _last_char(c)
-        if lc and lc not in seen_last:
-            wrongs.append(c)
-            seen_last.add(lc)
-            if len(wrongs) == k:
-                return wrongs
+        # 그래도 부족하면 마지막 fallback
+        return random.sample(cands, k)
 
-    rest = [c for c in base if c not in wrongs]
-    if len(rest) >= (k - len(wrongs)):
-        wrongs += random.sample(rest, k - len(wrongs))
-        return wrongs
+    # ✅ i형용사: 끝 い(사실상 모두 い지만, 혹시 모를 데이터 예외 대비)
+    if pos == "adj_i":
+        same1 = [c for c in cands if _suffix_kana(c, 1) == "い"]
+        if len(same1) >= k:
+            return random.sample(same1, k)
+        return random.sample(cands, k)
 
-    return wrongs
+    # ✅ na형용사 / 기타: pos 필터(상위에서 이미 pos로 후보 생성)
+    # - 너무 빡세게 하면 오답 부족이 자주 생겨서, 여기서는 안정성 우선
+    return random.sample(cands, k)
 
 def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     # ✅ jp_word가 "표시용 단어"이자 "출제 단어"
@@ -2060,8 +2086,11 @@ if st.session_state.submitted:
     st.success(f"점수: {score} / {quiz_len}")
     ratio = score / quiz_len if quiz_len else 0
 
+    # ✅ SFX 규칙(수정)
     if ratio == 1:
         sfx("perfect")
+    elif ratio >= 0.7:
+        sfx("correct")
     else:
         sfx("wrong")
 
