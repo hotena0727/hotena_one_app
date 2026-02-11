@@ -1642,6 +1642,84 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
     sampled = base.sample(n=N, replace=False).reset_index(drop=True)
     return [make_question(sampled.iloc[i], qtype, pool) for i in range(N)]
 
+
+# ============================================================
+# ✅ Quiz builders for review (TOP10 / wrong retry)
+# ✅ 반드시 Admin/My pages(마이페이지) 보다 위에 있어야 합니다.
+# ============================================================
+
+def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 안전장치
+    pos_group = str(pos_group).strip().lower()
+    qtype = str(qtype).strip()
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
+    ensure_pool_ready()
+    pool = st.session_state["_pool"]
+
+    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        st.warning("TOP10 단어가 비어 있어요.")
+        return []
+
+    pos_filters = get_pos_filters()
+    df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
+        & (pool["jp_word"].astype(str).str.strip().isin(keys))
+    ].copy()
+
+    if qtype == "reading":
+        df = df[df["jp_word"].apply(_has_kanji)].copy()
+
+    if df.empty:
+        st.warning("TOP10 단어를 현재 풀(품사/기타 선택)에서 찾지 못했어요. (필터 조건 확인)")
+        return []
+
+    df = df.sample(frac=1).reset_index(drop=True)
+    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
+
+
+def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 안전장치
+    pos_group = str(pos_group).strip().lower()
+    qtype = str(qtype).strip()
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
+    ensure_pool_ready()
+    pool = st.session_state["_pool"]
+
+    wrong_words = []
+    for w in (wrong_list or []):
+        key = str(w.get("단어", "")).strip()
+        if key:
+            wrong_words.append(key)
+    wrong_words = list(dict.fromkeys(wrong_words))
+
+    if not wrong_words:
+        st.warning("현재 오답 노트가 비어 있어요. 🙂")
+        return []
+
+    pos_filters = get_pos_filters()
+    retry_df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
+        & (pool["jp_word"].astype(str).str.strip().isin(wrong_words))
+    ].copy()
+
+    if retry_df.empty:
+        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
+        return []
+
+    # ✅ 발음(reading) 문제: 한자 없는 jp_word 제외
+    if qtype == "reading":
+        retry_df = retry_df[retry_df["jp_word"].apply(_has_kanji)].copy()
+
+    retry_df = retry_df.sample(frac=1).reset_index(drop=True)
+    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
+
+
 # ============================================================
 # ✅ Admin/My pages
 # ============================================================
@@ -2487,37 +2565,6 @@ if st.session_state.submitted:
 # ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
 # - st.markdown() 대신 components.html()로 렌더 (마크다운 파서 우회)
 # ============================================================
-
-
-def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
-    keys = list(dict.fromkeys(keys))
-    if not keys:
-        return []
-
-    pos_filters = get_pos_filters()
-    df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].astype(str).str.strip().isin(keys))
-    ].copy()
-
-    if qtype == "reading":
-        df = df[df["jp_word"].apply(_has_kanji)].copy()
-
-    if df.empty:
-        return []
-
-    df = df.sample(frac=1).reset_index(drop=True)
-    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
 
 
 # (필수) build_quiz_from_wrongs 버그 1줄 수정도 같이 반영하세요.
