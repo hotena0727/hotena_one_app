@@ -47,6 +47,7 @@ st.set_page_config(page_title="왕초보 탈출 하테나일본어", layout="cen
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "words_beginner.csv"   # ✅ 왕초보 단어 CSV
+PATTERN_CSV_PATH = BASE_DIR / "data" / "patterns_beginner.csv"
 APP_URL = "https://YOUR_STREAMLIT_APP_URL_HERE/"      # ✅ 이메일 인증 redirect용 (스트림릿 앱 주소로 교체)
 
 # ============================================================
@@ -117,8 +118,11 @@ PATTERNS = {
 }
 
 def render_pattern_cards():
+    ensure_patterns_ready()
+
     g = str(st.session_state.get("pos_group", "noun")).lower().strip()
-    items = PATTERNS.get(g, [])
+    pats = st.session_state.get("_patterns", {}) or {}
+    items = pats.get(g, [])
     if not items:
         st.caption("이 품사에는 아직 필수패턴이 준비되지 않았어요 🙂")
         return
@@ -1304,6 +1308,122 @@ def ensure_pool_ready():
         with st.expander("🔎 디버그: 품사별 단어 수", expanded=False):
             st.write(pool["pos"].value_counts(dropna=False))
             st.write("CSV_PATH =", str(CSV_PATH))
+
+@st.cache_data(show_spinner=False)
+def load_patterns(csv_path_str: str) -> dict[str, list[dict]]:
+    df = pd.read_csv(csv_path_str, **READ_KW)
+
+    required = {
+        "pos_group", "title", "jp", "kr",
+        "ex1_jp", "ex1_kr", "ex2_jp", "ex2_kr"
+    }
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"patterns CSV 필수 컬럼 누락: {sorted(list(missing))}")
+
+    def _nfkc(s):
+        return unicodedata.normalize("NFKC", str(s or "")).strip()
+
+    for c in df.columns:
+        df[c] = df[c].apply(_nfkc)
+
+    df["pos_group"] = df["pos_group"].str.lower().str.strip()
+
+    # 빈 행 제거(최소 title/jp는 있어야 카드가 의미가 있음)
+    df = df[(df["pos_group"] != "") & (df["title"] != "") & (df["jp"] != "")].copy()
+
+    out: dict[str, list[dict]] = {}
+    for _, r in df.iterrows():
+        g = r["pos_group"]
+        item = {
+            "title": r["title"],
+            "jp": r["jp"],
+            "kr": r["kr"],
+            "ex": [
+                (r.get("ex1_jp", ""), r.get("ex1_kr", "")),
+                (r.get("ex2_jp", ""), r.get("ex2_kr", "")),
+            ],
+        }
+        # 예문이 비어있으면 제거
+        item["ex"] = [(a, b) for (a, b) in item["ex"] if a and b]
+
+        out.setdefault(g, []).append(item)
+
+    return out
+
+def ensure_patterns_ready():
+    if st.session_state.get("_patterns_ready") and isinstance(st.session_state.get("_patterns"), dict):
+        return
+    try:
+        pats = load_patterns(str(PATTERN_CSV_PATH))
+    except Exception as e:
+        st.error(f"필수패턴 CSV 로드 실패: {e}")
+        st.stop()
+
+    st.session_state["_patterns"] = pats
+    st.session_state["_patterns_ready"] = True
+
+# ============================================================
+# ✅ Pattern CSV Load (필수패턴)
+#   data/patterns_beginner.csv
+#   required cols:
+#     pos_group,title,jp,kr,ex1_jp,ex1_kr,ex2_jp,ex2_kr
+# ============================================================
+
+@st.cache_data(show_spinner=False)
+def load_patterns(csv_path_str: str) -> dict[str, list[dict]]:
+    df = pd.read_csv(csv_path_str, **READ_KW)
+
+    required = {
+        "pos_group", "title", "jp", "kr",
+        "ex1_jp", "ex1_kr", "ex2_jp", "ex2_kr"
+    }
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"patterns CSV 필수 컬럼 누락: {sorted(list(missing))}")
+
+    def _nfkc(s):
+        return unicodedata.normalize("NFKC", str(s or "")).strip()
+
+    for c in df.columns:
+        df[c] = df[c].apply(_nfkc)
+
+    df["pos_group"] = df["pos_group"].str.lower().str.strip()
+
+    # 최소 title/jp는 있어야 카드 렌더 가능
+    df = df[(df["pos_group"] != "") & (df["title"] != "") & (df["jp"] != "")].copy()
+
+    out: dict[str, list[dict]] = {}
+    for _, r in df.iterrows():
+        g = r["pos_group"]
+        item = {
+            "title": r.get("title", ""),
+            "jp": r.get("jp", ""),
+            "kr": r.get("kr", ""),
+            "ex": [
+                (r.get("ex1_jp", ""), r.get("ex1_kr", "")),
+                (r.get("ex2_jp", ""), r.get("ex2_kr", "")),
+            ],
+        }
+        # 예문이 비어있으면 제거
+        item["ex"] = [(a, b) for (a, b) in item["ex"] if a and b]
+
+        out.setdefault(g, []).append(item)
+
+    return out
+
+
+def ensure_patterns_ready():
+    if st.session_state.get("_patterns_ready") and isinstance(st.session_state.get("_patterns"), dict):
+        return
+    try:
+        pats = load_patterns(str(PATTERN_CSV_PATH))
+    except Exception as e:
+        st.error(f"필수패턴 CSV 로드 실패: {e}")
+        st.stop()
+
+    st.session_state["_patterns"] = pats
+    st.session_state["_patterns_ready"] = True
 
 # ============================================================
 # ✅ Quiz Logic
