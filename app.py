@@ -2561,6 +2561,37 @@ def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list
 
     return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
 
+def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 안전장치
+    pos_group = str(pos_group).strip().lower()
+    qtype = str(qtype).strip()
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
+    ensure_pool_ready()
+    pool = st.session_state["_pool"]
+
+    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        st.warning("TOP10 단어가 비어 있어요.")
+        return []
+
+    pos_filters = get_pos_filters()
+    df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
+        & (pool["jp_word"].astype(str).str.strip().isin(keys))
+    ].copy()
+
+    if qtype == "reading":
+        df = df[df["jp_word"].apply(_has_kanji)].copy()
+
+    if df.empty:
+        st.warning("TOP10 단어를 현재 풀(품사/기타 선택)에서 찾지 못했어요. (필터 조건 확인)")
+        return []
+
+    df = df.sample(frac=1).reset_index(drop=True)
+    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
 
 # ============================================================
 # ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
