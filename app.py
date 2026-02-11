@@ -1365,68 +1365,6 @@ def ensure_patterns_ready():
     st.session_state["_patterns_ready"] = True
 
 # ============================================================
-# ✅ Pattern CSV Load (필수패턴)
-#   data/patterns_beginner.csv
-#   required cols:
-#     pos_group,title,jp,kr,ex1_jp,ex1_kr,ex2_jp,ex2_kr
-# ============================================================
-
-@st.cache_data(show_spinner=False)
-def load_patterns(csv_path_str: str) -> dict[str, list[dict]]:
-    df = pd.read_csv(csv_path_str, **READ_KW)
-
-    required = {
-        "pos_group", "title", "jp", "kr",
-        "ex1_jp", "ex1_kr", "ex2_jp", "ex2_kr"
-    }
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"patterns CSV 필수 컬럼 누락: {sorted(list(missing))}")
-
-    def _nfkc(s):
-        return unicodedata.normalize("NFKC", str(s or "")).strip()
-
-    for c in df.columns:
-        df[c] = df[c].apply(_nfkc)
-
-    df["pos_group"] = df["pos_group"].str.lower().str.strip()
-
-    # 최소 title/jp는 있어야 카드 렌더 가능
-    df = df[(df["pos_group"] != "") & (df["title"] != "") & (df["jp"] != "")].copy()
-
-    out: dict[str, list[dict]] = {}
-    for _, r in df.iterrows():
-        g = r["pos_group"]
-        item = {
-            "title": r.get("title", ""),
-            "jp": r.get("jp", ""),
-            "kr": r.get("kr", ""),
-            "ex": [
-                (r.get("ex1_jp", ""), r.get("ex1_kr", "")),
-                (r.get("ex2_jp", ""), r.get("ex2_kr", "")),
-            ],
-        }
-        # 예문이 비어있으면 제거
-        item["ex"] = [(a, b) for (a, b) in item["ex"] if a and b]
-
-        out.setdefault(g, []).append(item)
-
-    return out
-
-
-def ensure_patterns_ready():
-    if st.session_state.get("_patterns_ready") and isinstance(st.session_state.get("_patterns"), dict):
-        return
-    try:
-        pats = load_patterns(str(PATTERN_CSV_PATH))
-    except Exception as e:
-        st.error(f"필수패턴 CSV 로드 실패: {e}")
-        st.stop()
-
-    st.session_state["_patterns"] = pats
-    st.session_state["_patterns_ready"] = True
-
-# ============================================================
 # ✅ Quiz Logic
 # ============================================================
 def _nfkc_str(x) -> str:
@@ -1682,45 +1620,6 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
 
     sampled = base.sample(n=N, replace=False).reset_index(drop=True)
     return [make_question(sampled.iloc[i], qtype, pool) for i in range(N)]
-
-def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    wrong_words = []
-    for w in (wrong_list or []):
-        key = str(w.get("단어", "")).strip()
-        if key:
-            wrong_words.append(key)
-    wrong_words = list(dict.fromkeys(wrong_words))
-
-    if not wrong_words:
-        st.warning("현재 오답 노트가 비어 있어요. 🙂")
-        return []
-
-    pos_filters = get_pos_filters()
-    retry_df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].isin(wrong_words))
-    ].copy()
-
-    if len(retry_df) == 0:
-        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
-        st.stop()
-
-    retry_df = retry_df.sample(frac=1).reset_index(drop=True)
-
-    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외
-    if qtype == "reading":
-        base_pos = base_pos[base_pos["jp_word"].apply(_has_kanji)].copy()
-
-    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
 
 # ============================================================
 # ✅ Admin/My pages
@@ -2632,8 +2531,9 @@ if st.session_state.wrong_list:
     all_cards_html = "".join(cards)
 
     # 카드 높이(대략) 계산: 카드 1개당 190~220px 정도면 안정적
-    height = 220 * len(cards) + 120
-    height = max(320, min(height, 2200))  # 너무 길어지면 제한
+    height = 210 * len(cards) + 30   # ✅ 여백 최소화
+    height = max(230, min(height, 1600))
+
 
     components.html(
         textwrap.dedent(
@@ -2705,6 +2605,35 @@ if st.session_state.wrong_list:
         st.session_state["_scroll_top_once"] = True
         st.rerun()
 
-    show_naver_talk = (SHOW_NAVER_TALK == "Y") or is_admin()
+# ============================================================
+# ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
+# ============================================================
+if st.session_state.get("submitted", False):
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    cA, cB = st.columns(2)
+    with cA:
+        if st.button("✅ 다음 10문항 시작하기", type="primary", use_container_width=True, key="btn_next_10"):
+            clear_question_widget_keys()
+            new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+            start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+
+    with cB:
+        # 오답이 있을 때만 활성화(없으면 disabled)
+        has_wrongs = bool(st.session_state.get("wrong_list"))
+        if st.button("❌ 틀린 문제만 다시 풀기", use_container_width=True, disabled=not has_wrongs, key="btn_retry_wrongs_bottom_global"):
+            clear_question_widget_keys()
+            retry_quiz = build_quiz_from_wrongs(
+                st.session_state.wrong_list,
+                st.session_state.quiz_type,
+                st.session_state.pos_group
+            )
+            start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+
+    show_naver_talk = (SHOW_NAVER_TALK == "N") or is_admin()
     if show_naver_talk:
         render_naver_talk()
