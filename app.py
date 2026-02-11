@@ -47,8 +47,8 @@ st.set_page_config(page_title="왕초보 탈출 하테나일본어", layout="cen
 
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "words_beginner.csv"   # ✅ 왕초보 단어 CSV
-PATTERN_CSV_PATH = BASE_DIR / "data" / "required_patterns.csv"  # ✅ 필수패턴 CSV
-APP_URL = "https://YOUR_STREAMLIT_APP_URL_HERE/"      # ✅ 이메일 인증 redirect용 (스트림릿 앱 주소로 교체)
+PATTERN_CSV_PATH = BASE_DIR / "data" / "required_patterns1.csv"  # ✅ 필수패턴 CSV
+APP_URL = "https://hotenaoneapp-cvztfxksphaafkgrftpx9f.streamlit.app/"      # ✅ 이메일 인증 redirect용 (스트림릿 앱 주소로 교체)
 
 # ============================================================
 # ✅ App Settings
