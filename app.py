@@ -2452,8 +2452,14 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 # ✅ 문제 표시
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
+    prompt = html.escape(str(q.get("prompt", "")))
+
     st.markdown(
-        f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+        f"""
+<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">
+  <b>Q{idx+1}.</b> {prompt}
+</div>
+""",
         unsafe_allow_html=True
     )
 
@@ -2463,17 +2469,6 @@ for idx, q in enumerate(st.session_state.quiz):
     if prev is not None and prev in q["choices"]:
         default_index = q["choices"].index(prev)
 
-    choice = st.radio(
-        label="보기",
-        options=q["choices"],
-        index=default_index,
-        key=widget_key,
-        label_visibility="collapsed",
-        on_change=mark_progress_dirty,
-    )
-    st.session_state.answers[idx] = choice
-
-sync_answers_from_widgets()
 
 # ============================================================
 # ✅ 제출/채점
