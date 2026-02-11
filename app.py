@@ -49,8 +49,8 @@ st.set_page_config(page_title="왕초보탈출 하테나일본어", layout="cent
 # ============================================================
 # ✅ PWA/아이콘(외부 URL) - set_page_config 바로 아래
 # ============================================================
-ICON_192 = "href="/assets/icon-192.png"
-APPLE_180 = "href="/assets/apple-touch-icon.png"
+ICON_192 = href="/assets/icon-192.png"
+APPLE_180 = href="/assets/apple-touch-icon.png"
 
 st.markdown(f"""
 <link rel="icon" href="{ICON_192}">
