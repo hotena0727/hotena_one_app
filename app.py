@@ -1220,58 +1220,63 @@ def _is_suru_verb(reading: str) -> bool:
     return r.endswith("する")
 
 def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
-    """
-    ✅ '발음(読み)' 오답 규칙
-    - verb:
-      1) correct가 '～する'면: 오답도 전부 '～する'에서만 뽑기
-      2) 그 외: (가능하면) 끝 2글자 동일 → 부족하면 끝 1글자 동일
-    - adj_i: 끝이 'い'로 통일(동일 pos 풀에서 뽑히므로 기본 충족, 그래도 suffix로 살짝 강화)
-    - adj_na: pos로만 제한(끝 글자 규칙 강제 X)
-    """
-    correct_nf = _nfkc_str(correct)
-    pos = (pos or "").strip().lower()
+    def _nf(x: str) -> str:
+        return _nfkc_str(x)
 
-    # 정리된 후보(정답 제외)
-    cands = _uniq([_nfkc_str(c) for c in candidates if _nfkc_str(c) and _nfkc_str(c) != correct_nf])
+    def _h(x: str) -> str:
+        return _to_hira(_nf(x))
+
+    def _suffix(x: str, n: int) -> str:
+        s = _h(x)
+        return s[-n:] if len(s) >= n else s
+
+    correct_nf = _nf(correct)
+    cands = _uniq([_nf(c) for c in candidates if _nf(c) and _nf(c) != correct_nf])
+
     if len(cands) < k:
         return []
 
-    # ✅ verb: する 동사면 무조건 する로만
-    if pos == "verb" and _is_suru_verb(correct_nf):
-        suru_only = [c for c in cands if _is_suru_verb(c)]
-        if len(suru_only) >= k:
-            return random.sample(suru_only, k)
-        # 부족하면 그냥 fallback (그래도 pos가 verb인 풀에서 오는 후보라 크게 문제는 없음)
-        # 하지만 "する 찍기"가 다시 생길 수 있으니, 여기까지 부족한 경우는 데이터가 너무 적은 케이스
-        return random.sample(cands, k)
+    c_h = _h(correct_nf)
 
-    # ✅ verb: 끝 2 → 끝 1 우선
-    if pos == "verb":
-        s2 = _suffix_kana(correct_nf, 2)
-        s1 = _suffix_kana(correct_nf, 1)
+    # ✅ 동사/형용사/する동사는 "끝모양 강제" (절대 섞지 않음)
+    force = (pos in {"verb", "adj_i", "adj_na"}) or c_h.endswith("する")
 
-        same2 = [c for c in cands if _suffix_kana(c, 2) == s2]
-        if len(same2) >= k:
-            return random.sample(same2, k)
+    if force:
+        if c_h.endswith("する"):
+            pool = [c for c in cands if _h(c).endswith("する")]
+            if len(pool) >= k:
+                return random.sample(pool, k)
+            return []  # ← 부족하면 섞지 말고 실패(데이터 보강 신호)
+        else:
+            s2 = _suffix(correct_nf, 2)
+            s1 = _suffix(correct_nf, 1)
 
-        same1 = [c for c in cands if _suffix_kana(c, 1) == s1]
-        pool = _uniq(same2 + same1)
-        if len(pool) >= k:
-            return random.sample(pool, k)
+            pool2 = [c for c in cands if _suffix(c, 2) == s2]
+            if len(pool2) >= k:
+                return random.sample(pool2, k)
 
-        # 그래도 부족하면 마지막 fallback
-        return random.sample(cands, k)
+            pool1 = [c for c in cands if _suffix(c, 1) == s1]
+            if len(pool1) >= k:
+                return random.sample(pool1, k)
 
-    # ✅ i형용사: 끝 い(사실상 모두 い지만, 혹시 모를 데이터 예외 대비)
-    if pos == "adj_i":
-        same1 = [c for c in cands if _suffix_kana(c, 1) == "い"]
-        if len(same1) >= k:
-            return random.sample(same1, k)
-        return random.sample(cands, k)
+            return []  # ← 핵심: 끝글자 다르게 섞는 탈출구 제거
 
-    # ✅ na형용사 / 기타: pos 필터(상위에서 이미 pos로 후보 생성)
-    # - 너무 빡세게 하면 오답 부족이 자주 생겨서, 여기서는 안정성 우선
-    return random.sample(cands, k)
+    # ✅ (명사 등) 기존 방식 유지: 끝글자 다양화로 "모양 힌트" 줄이기
+    base = cands[:]
+    random.shuffle(base)
+    wrongs, seen_last = [], set()
+    for c in base:
+        lc = _last_char(c)
+        if lc and lc not in seen_last:
+            wrongs.append(c)
+            seen_last.add(lc)
+            if len(wrongs) == k:
+                return wrongs
+
+    rest = [c for c in base if c not in wrongs]
+    if len(rest) >= (k - len(wrongs)):
+        wrongs += random.sample(rest, k - len(wrongs))
+    return wrongs
 
 def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     # ✅ jp_word가 "표시용 단어"이자 "출제 단어"
