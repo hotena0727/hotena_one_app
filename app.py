@@ -1308,10 +1308,7 @@ def ensure_pool_ready():
 
 # ============================================================
 # ✅ Required Patterns (CSV)
-#   - data/required_patterns.csv 자동 로드
-#   - pos/qtype 맞춤 필터 + 카드 표시 + 적용 버튼
 # ============================================================
-
 PATTERN_READ_KW = dict(
     dtype=str,
     keep_default_na=False,
@@ -1320,173 +1317,148 @@ PATTERN_READ_KW = dict(
 
 @st.cache_data(show_spinner=False)
 def load_required_patterns(csv_path_str: str) -> pd.DataFrame:
-    if not Path(csv_path_str).exists():
-        # 파일이 없으면 빈 DF (앱은 조용히 스킵)
-        return pd.DataFrame(columns=["id","pos","qtype","title","jp","kr","example_jp","example_kr","tags"])
-
     df = pd.read_csv(csv_path_str, **PATTERN_READ_KW)
 
-    required = {"id","pos","qtype","title","jp","kr","example_jp","example_kr"}
-    missing = required - set(df.columns)
+    required_cols = {"pos", "jp", "kr"}
+    missing = required_cols - set(df.columns)
     if missing:
-        raise ValueError(f"required_patterns.csv 필수 컬럼 누락: {sorted(list(missing))}")
+        raise ValueError(f"필수패턴 CSV 필수 컬럼 누락: {sorted(list(missing))}")
 
     def _nfkc(s):
         return unicodedata.normalize("NFKC", str(s or "")).strip()
 
-    for c in ["id","pos","qtype","title","jp","kr","example_jp","example_kr","tags"]:
-        if c in df.columns:
-            df[c] = df[c].apply(_nfkc)
+    # 표준화
+    df["pos"] = df["pos"].apply(_nfkc).str.lower().str.strip()
+    df["jp"] = df["jp"].apply(_nfkc).str.strip()
+    df["kr"] = df["kr"].apply(_nfkc).str.strip()
 
-    df["pos"] = df["pos"].str.lower().str.strip()
-    df["qtype"] = df["qtype"].str.lower().str.strip()
+    # 선택 컬럼 (없어도 OK)
+    if "title" in df.columns:
+        df["title"] = df["title"].apply(_nfkc).str.strip()
+    else:
+        df["title"] = ""
 
-    # 빈값 제거
-    df = df[(df["id"]!="") & (df["title"]!="") & (df["jp"]!="") & (df["kr"]!="")].copy()
+    if "example_jp" in df.columns:
+        df["example_jp"] = df["example_jp"].apply(_nfkc).str.strip()
+    else:
+        df["example_jp"] = ""
+
+    if "example_kr" in df.columns:
+        df["example_kr"] = df["example_kr"].apply(_nfkc).str.strip()
+    else:
+        df["example_kr"] = ""
+
+    # 빈 줄 제거
+    df = df[(df["pos"] != "") & (df["jp"] != "") & (df["kr"] != "")].copy()
     return df.reset_index(drop=True)
 
-def ensure_patterns_ready():
-    if st.session_state.get("_patterns_ready") and isinstance(st.session_state.get("_patterns"), pd.DataFrame):
-        return
+def render_required_patterns_bottom(pos: str, n_show: int = 10):
+    """퀴즈 페이지 하단에 '필수 패턴'을 접었다 펼치기 형태로 노출"""
     try:
-        st.session_state["_patterns"] = load_required_patterns(str(PATTERN_CSV_PATH))
-        st.session_state["_patterns_ready"] = True
+        pdf = load_required_patterns(str(PATTERN_CSV_PATH))
     except Exception as e:
-        st.warning(f"필수패턴 로드 실패: {e}")
-        st.session_state["_patterns"] = pd.DataFrame()
-        st.session_state["_patterns_ready"] = True
-
-def _pattern_matches(df: pd.DataFrame, pos: str, qtype: str) -> pd.DataFrame:
-    if df is None or len(df) == 0:
-        return df
-
-    pos = str(pos).lower().strip()
-    qtype = str(qtype).lower().strip()
-
-    m_pos = df["pos"].isin([pos, "all"])
-    m_qt  = df["qtype"].isin([qtype, "all"])
-    out = df[m_pos & m_qt].copy()
-
-    # ✅ 제한 품사에서는 reading 패턴도 숨김(혹시 csv에 있어도)
-    if pos in POS_ONLY_2TYPES:
-        out = out[~out["qtype"].isin(["reading"])].copy()
-
-    return out.reset_index(drop=True)
-
-def pick_required_pattern() -> dict | None:
-    ensure_patterns_ready()
-    df = st.session_state.get("_patterns")
-    if df is None or len(df) == 0:
-        return None
-
-    pos = st.session_state.get("pos", "noun")
-    qtype = st.session_state.get("quiz_type", "meaning")
-    cand = _pattern_matches(df, pos, qtype)
-
-    if cand is None or len(cand) == 0:
-        # fallback: all/all
-        cand = _pattern_matches(df, "all", "all")
-        if cand is None or len(cand) == 0:
-            return None
-
-    # “오늘의 패턴” 고정 느낌: 같은 세션에서는 유지
-    key = f"_picked_pattern_{pos}_{qtype}"
-    if st.session_state.get("pattern_refresh_nonce") is None:
-        st.session_state["pattern_refresh_nonce"] = 0
-
-    cached = st.session_state.get(key)
-    if isinstance(cached, dict) and cached.get("id"):
-        return cached
-
-    row = cand.sample(n=1).iloc[0].to_dict()
-    st.session_state[key] = row
-    return row
-
-def force_next_pattern():
-    pos = st.session_state.get("pos", "noun")
-    qtype = st.session_state.get("quiz_type", "meaning")
-    key = f"_picked_pattern_{pos}_{qtype}"
-    st.session_state.pop(key, None)
-    st.session_state["pattern_refresh_nonce"] = int(st.session_state.get("pattern_refresh_nonce", 0)) + 1
-
-def apply_pattern(p: dict):
-    # pos/qtype가 all이면 현재 선택 유지
-    ps = str(p.get("pos","all")).lower().strip()
-    qt = str(p.get("qtype","all")).lower().strip()
-
-    if ps and ps != "all" and ps in POS_OPTIONS:
-        st.session_state.pos = ps
-
-    # ✅ 제한 품사 방어
-    pos_now = str(st.session_state.get("pos","noun")).lower().strip()
-    if qt and qt != "all":
-        if pos_now in POS_ONLY_2TYPES and qt == "reading":
-            st.session_state.quiz_type = "meaning"
-        else:
-            if qt in get_available_quiz_types_for_pos(pos_now):
-                st.session_state.quiz_type = qt
-
-    # “적용”하면 그 상태로 새 퀴즈 시작
-    clear_question_widget_keys()
-    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos)
-    start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
-    st.session_state["_scroll_top_once"] = True
-    st.rerun()
-
-def render_required_pattern_card():
-    p = pick_required_pattern()
-    if not p:
+        # 운영 중에는 조용히 숨기는 게 UX 좋음 (관리자면 표시)
+        if is_admin():
+            st.warning(f"필수패턴 로드 실패: {e}")
         return
 
-    title = str(p.get("title","")).strip()
-    jp = str(p.get("jp","")).strip()
-    kr = str(p.get("kr","")).strip()
-    exj = str(p.get("example_jp","")).strip()
-    exk = str(p.get("example_kr","")).strip()
+    pos = str(pos).strip().lower()
+    sub = pdf[pdf["pos"] == pos].copy()
+    if sub.empty:
+        # pos별 데이터가 없으면 그냥 숨김
+        return
 
-    # 카드 UI
-    st.markdown(
-        f"""
-<div class="jp" style="
-  border:1px solid rgba(120,120,120,0.18);
-  border-radius:18px;
+    # 30개 중 일부만 랜덤으로 보여주기 (너무 길어지지 않게)
+    n_show = max(3, int(n_show))
+    if len(sub) > n_show:
+        sub = sub.sample(n=n_show, replace=False).reset_index(drop=True)
+    else:
+        sub = sub.reset_index(drop=True)
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    with st.expander("⭐ 필수 패턴 (오늘 이 품사에서 자주 쓰는 말)", expanded=False):
+        st.caption("퀴즈는 짧게, 패턴은 아래에서 천천히 익히면 속도가 빨라집니다.")
+
+        st.markdown(
+            """
+<style>
+.rp-card{
+  border:1px solid rgba(120,120,120,0.22);
+  border-radius:16px;
   padding:14px 14px;
-  background: rgba(255,255,255,0.03);
-  margin-top: 8px;
-">
-  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
-    <div style="min-width:0;">
-      <div style="font-weight:900; font-size:14px; opacity:.78;">📌 오늘의 필수패턴</div>
-      <div style="margin-top:6px; font-weight:900; font-size:18px; line-height:1.25;">{title}</div>
-      <div style="margin-top:8px; font-size:16px; font-weight:800;">{jp}</div>
-      <div style="margin-top:4px; font-size:13px; opacity:.85;">{kr}</div>
-      <div style="margin-top:10px; font-size:13px; opacity:.95; line-height:1.55;">
-        <b>예문</b><br/>
-        {exj}<br/>
-        {exk}
-      </div>
-    </div>
+  margin:10px 0;
+  background: rgba(255,255,255,0.02);
+}
+.rp-title{
+  font-weight:900;
+  font-size:14px;
+  opacity:.80;
+  margin-bottom:6px;
+}
+.rp-jp{
+  font-weight:900;
+  font-size:20px;
+  line-height:1.25;
+}
+.rp-kr{
+  margin-top:6px;
+  font-size:13px;
+  opacity:.85;
+  line-height:1.5;
+}
+.rp-ex{
+  margin-top:10px;
+  padding-top:10px;
+  border-top:1px dashed rgba(120,120,120,0.18);
+  font-size:13px;
+  opacity:.90;
+  line-height:1.5;
+}
+.rp-ex small{
+  display:block;
+  opacity:.75;
+  margin-top:4px;
+}
+</style>
+""",
+            unsafe_allow_html=True,
+        )
+
+        for _, r in sub.iterrows():
+            title = str(r.get("title", "")).strip()
+            jp = str(r.get("jp", "")).strip()
+            kr = str(r.get("kr", "")).strip()
+            ex_jp = str(r.get("example_jp", "")).strip()
+            ex_kr = str(r.get("example_kr", "")).strip()
+
+            title_html = f"<div class='rp-title'>{title}</div>" if title else ""
+            ex_html = ""
+            if ex_jp or ex_kr:
+                ex_html = f"""
+<div class="rp-ex">
+  <div><b>예문</b> {ex_jp}</div>
+  <small>{ex_kr}</small>
+</div>
+"""
+
+            st.markdown(
+                f"""
+<div class="jp">
+  <div class="rp-card">
+    {title_html}
+    <div class="rp-jp">{jp}</div>
+    <div class="rp-kr">{kr}</div>
+    {ex_html}
   </div>
 </div>
 """,
-        unsafe_allow_html=True,
-    )
+                unsafe_allow_html=True,
+            )
 
-    b1, b2, b3 = st.columns([3.2, 3.2, 3.6])
-    with b1:
-        if st.button("🔄 다른 패턴", use_container_width=True, key="btn_pattern_next"):
-            force_next_pattern()
+        # 버튼: 다시 추천(새로 섞기)
+        if st.button("🔄 패턴 다시 추천", use_container_width=True, key=f"btn_rp_shuffle_{pos}"):
+            st.session_state["_scroll_top_once"] = False  # 굳이 위로 올릴 필요 없음
             st.rerun()
-    with b2:
-        if st.button("✅ 이 패턴 적용", type="primary", use_container_width=True, key="btn_pattern_apply"):
-            apply_pattern(p)
-    with b3:
-        # 적용 대신 목표문장에 꽂기
-        if st.button("✍️ 목표에 넣기", use_container_width=True, key="btn_pattern_to_goal"):
-            s = f"{jp} : {kr}"
-            cur = st.session_state.get("today_goal","")
-            st.session_state.today_goal = (cur + " / " + s).strip(" /") if cur else s
-            st.toast("오늘의 목표에 추가했어요 ✅")
 
 # ============================================================
 # ✅ Quiz Logic
@@ -2673,6 +2645,8 @@ if st.session_state.submitted:
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
+
+    render_required_patterns_bottom(st.session_state.pos, n_show=10)
 
     show_naver_talk = (SHOW_NAVER_TALK == "Y") or is_admin()
     if show_naver_talk:
