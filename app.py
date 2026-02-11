@@ -2500,19 +2500,22 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
     st.subheader(f"Q{idx+1}")
-    
+
     cols = st.columns([8, 1], vertical_alignment="center")
 
     with cols[0]:
         st.markdown(
-            f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+            f'<div class="jp" style="margin-top:-6px; margin-bottom:0px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
             unsafe_allow_html=True
         )
+        st.caption("발음이 궁금하면 눌러보세요")
 
     with cols[1]:
-        if st.button("🔊 발음 듣기", key=f"tts_{q_no}", type="secondary"):
-            play_tts(question_word)
+        if st.button("🔊", key=f"tts_{st.session_state.quiz_version}_{idx}", help="발음 듣기"):
+            # ✅ 여기만 나중에 실제 TTS 함수로 연결
+            # 예: play_tts(q["jp_word"]) 또는 play_tts(q["reading"])
             pass
+
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
     prev = st.session_state.answers[idx]
