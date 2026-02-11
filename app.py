@@ -1219,64 +1219,132 @@ def _is_suru_verb(reading: str) -> bool:
     r = _to_hira(_nfkc_str(reading))
     return r.endswith("する")
 
+def _jp_okurigana_suffix(jp_word: str) -> str:
+    """
+    jp_word 끝에서 '오쿠리가나(히라/가타카나 연속 꼬리)'를 뽑아 히라가나로 반환.
+    예) 直す -> す
+        立てる -> てる
+        掃除する -> する
+        おもう(한자 없음) -> おもう (하지만 이 경우는 크게 의미 없으니 뒤에서 보정)
+    """
+    s = _nfkc_str(jp_word)
+    if not s:
+        return ""
+    i = len(s)
+    # 뒤에서부터 kana(히라/가타) 연속 부분을 수집
+    while i > 0:
+        ch = s[i-1]
+        code = ord(ch)
+        is_hira = (0x3040 <= code <= 0x309F)
+        is_kata = (0x30A0 <= code <= 0x30FF)
+        if is_hira or is_kata:
+            i -= 1
+        else:
+            break
+    tail = s[i:]
+    tail = _to_hira(tail)
+    return tail
+
+def _safe_suffix_hira(x: str, n: int) -> str:
+    xh = _to_hira(_nfkc_str(x))
+    return xh[-n:] if len(xh) >= n else xh
+
 def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
-    def _nf(x: str) -> str:
-        return _nfkc_str(x)
-
-    def _h(x: str) -> str:
-        return _to_hira(_nf(x))
-
-    def _suffix(x: str, n: int) -> str:
-        s = _h(x)
-        return s[-n:] if len(s) >= n else s
-
-    correct_nf = _nf(correct)
-    cands = _uniq([_nf(c) for c in candidates if _nf(c) and _nf(c) != correct_nf])
-
+    """
+    ✅ 새 규칙
+    1) 끝 모양을 최대한 맞춘다.
+    2) jp_word의 오쿠리가나가 2글자면, 보기 reading 끝도 2글자 동일을 최우선.
+       (가능한 만큼 채우고, 부족하면 1글자 동일로 보강)
+    3) 그래도 부족하면 "가장 비슷한 끝" 후보로 채우되, 완전 엉뚱한 끝은 최대한 늦게.
+    """
+    correct_nf = _nfkc_str(correct)
+    cands = _uniq([_nfkc_str(c) for c in candidates if _nfkc_str(c) and _nfkc_str(c) != correct_nf])
     if len(cands) < k:
         return []
 
-    c_h = _h(correct_nf)
+    # 정답/후보는 히라가나 기준으로 비교
+    correct_h = _to_hira(correct_nf)
 
-    # ✅ 동사/형용사/する동사는 "끝모양 강제" (절대 섞지 않음)
-    force = (pos in {"verb", "adj_i", "adj_na"}) or c_h.endswith("する")
+    # 오쿠리가나(꼬리) 추출
+    okuri = _jp_okurigana_suffix(jp_word)
+    okuri = _to_hira(okuri)
 
-    if force:
-        if c_h.endswith("する"):
-            pool = [c for c in cands if _h(c).endswith("する")]
-            if len(pool) >= k:
-                return random.sample(pool, k)
-            return []  # ← 부족하면 섞지 말고 실패(데이터 보강 신호)
-        else:
-            s2 = _suffix(correct_nf, 2)
-            s1 = _suffix(correct_nf, 1)
+    # (중요) 한자 없는 단어는 okuri가 전체가 되어버릴 수 있음 → "끝 비교용"으로만 쓰자
+    # 즉, okuri가 너무 길면 마지막 2글자/1글자만 사용
+    ok2 = okuri[-2:] if len(okuri) >= 2 else ""
+    ok1 = okuri[-1:] if len(okuri) >= 1 else ""
 
-            pool2 = [c for c in cands if _suffix(c, 2) == s2]
-            if len(pool2) >= k:
-                return random.sample(pool2, k)
+    # 정답의 끝도 참고
+    cor2 = _safe_suffix_hira(correct_h, 2)
+    cor1 = _safe_suffix_hira(correct_h, 1)
 
-            pool1 = [c for c in cands if _suffix(c, 1) == s1]
-            if len(pool1) >= k:
-                return random.sample(pool1, k)
+    # “2글자 모양” 타겟: (오쿠리 2글자 존재하면 그걸 우선) 없으면 정답 끝2글자
+    target2 = ok2 if ok2 else cor2
+    target1 = ok1 if ok1 else cor1
 
-            return []  # ← 핵심: 끝글자 다르게 섞는 탈출구 제거
+    # 0) する(특수): "する" 꼬리면 우선적으로 する로 맞추기
+    want_suru = (target2 == "する") or correct_h.endswith("する")
 
-    # ✅ (명사 등) 기존 방식 유지: 끝글자 다양화로 "모양 힌트" 줄이기
-    base = cands[:]
-    random.shuffle(base)
-    wrongs, seen_last = [], set()
-    for c in base:
-        lc = _last_char(c)
-        if lc and lc not in seen_last:
-            wrongs.append(c)
-            seen_last.add(lc)
-            if len(wrongs) == k:
-                return wrongs
+    def score(c: str) -> int:
+        ch = _to_hira(c)
+        # 점수 높을수록 우선
+        sc = 0
+        if want_suru:
+            if ch.endswith("する"):
+                sc += 100
+            # する가 아닌 건 크게 감점(그래도 fallback은 가능)
+            else:
+                sc -= 50
+        # 2글자 끝 동일(가장 중요)
+        if target2 and _safe_suffix_hira(ch, 2) == target2:
+            sc += 60
+        # 1글자 끝 동일(차선)
+        if target1 and _safe_suffix_hira(ch, 1) == target1:
+            sc += 25
+        # 너무 똑같은(정답과 완전 동일) 건 제외 대상이지만 혹시라도 유사도가 너무 높으면 약간 감점
+        if ch == correct_h:
+            sc -= 999
+        return sc
 
-    rest = [c for c in base if c not in wrongs]
-    if len(rest) >= (k - len(wrongs)):
-        wrongs += random.sample(rest, k - len(wrongs))
-    return wrongs
+    # 점수순 정렬 후, 상위에서 k개 뽑되 중복 제거
+    ranked = sorted(cands, key=lambda x: score(x), reverse=True)
+
+    # 1차: score가 높은 것부터 채우기
+    picked = []
+    for c in ranked:
+        if len(picked) >= k:
+            break
+        # 최소한 "끝 1글자"라도 같게(가능하면) 유지하고 싶으니,
+        # 상위 구간에서는 target1이 맞는 것 위주로 먼저 채움
+        picked.append(c)
+
+    # 위 방식만 쓰면 섞일 수 있으니,
+    # "가능한 만큼" 2글자 동일/1글자 동일을 우선 채우는 2단계 보정
+    same2 = [c for c in ranked if target2 and _safe_suffix_hira(c, 2) == target2]
+    same1 = [c for c in ranked if target1 and _safe_suffix_hira(c, 1) == target1]
+
+    out = []
+    # 2글자 동일 먼저
+    for c in same2:
+        if c not in out:
+            out.append(c)
+        if len(out) == k:
+            return out
+    # 1글자 동일로 보강
+    for c in same1:
+        if c not in out:
+            out.append(c)
+        if len(out) == k:
+            return out
+    # 그래도 부족하면 점수순으로 채움(최대한 가까운 애들)
+    for c in ranked:
+        if c not in out:
+            out.append(c)
+        if len(out) == k:
+            return out
+
+    return out[:k]
+
 
 def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     # ✅ jp_word가 "표시용 단어"이자 "출제 단어"
