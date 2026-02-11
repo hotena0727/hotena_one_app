@@ -40,9 +40,6 @@ import time
 import traceback
 import base64
 import textwrap 
-import streamlit as st
-from gtts import gTTS
-import io
 
 # ============================================================
 # ✅ Page Config + Paths
@@ -216,24 +213,6 @@ st.markdown(
   line-height:1.7;
   letter-spacing:.2px;
 }
-
-/* ✅ Q 줄(문제+🔊)만: 다음 horizontal block을 1줄로 고정 */
-.qrow_anchor + div[data-testid="stHorizontalBlock"]{
-  flex-wrap: nowrap !important;
-  align-items: center !important;
-  gap: 0.5rem !important;
-}
-
-/* ✅ 줄바꿈 방지 핵심: 각 column이 줄바꿈될 때 폭 계산이 깨지지 않게 */
-.qrow_anchor + div[data-testid="stHorizontalBlock"] > div{
-  min-width: 0 !important;
-}
-
-/* ✅ 오른쪽(🔊) 칸은 고정폭 느낌으로 */
-.qrow_anchor + div[data-testid="stHorizontalBlock"] > div:last-child{
-  flex: 0 0 52px !important; /* 버튼 폭 */
-}
-
 
 /* 메인 컨테이너 위쪽 여백 줄이기 */
 div[data-testid="stAppViewContainer"] .block-container{
@@ -535,25 +514,6 @@ def clear_question_widget_keys():
     keys_to_del = [k for k in list(st.session_state.keys()) if isinstance(k, str) and k.startswith("q_")]
     for k in keys_to_del:
         st.session_state.pop(k, None)
-
-def speak_tts_browser(text: str, lang: str = "ja-JP"):
-    text = (text or "").replace("\\", "\\\\").replace("`", "\\`").replace("\n", " ")
-    components.html(
-        f"""
-        <script>
-          const t = `{text}`;
-          try {{
-            window.speechSynthesis.cancel();
-            const u = new SpeechSynthesisUtterance(t);
-            u.lang = "{lang}";
-            u.rate = 1.0;
-            u.pitch = 1.0;
-            window.speechSynthesis.speak(u);
-          }} catch (e) {{}}
-        </script>
-        """,
-        height=0,
-    )
 
 # ============================================================
 # ✅ POS filters (✅ B안 핵심)
@@ -1046,49 +1006,6 @@ def sfx(event: str):
     path = mp.get(event)
     if path:
         play_sound_file(path)
-
-# ============================================================
-# ✅ TTS (A안) - gTTS로 일본어 읽기 (문제/오답노트에서 버튼으로 재생)
-# ============================================================
-def _tts_enabled() -> bool:
-    # SFX 토글과 분리: TTS는 따로 관리 (기본 ON 추천)
-    if "tts_enabled" not in st.session_state:
-        st.session_state.tts_enabled = True
-    return bool(st.session_state.tts_enabled)
-
-def render_tts_toggle():
-    # 상단(퀴즈 페이지)에서 토글 하나 제공
-    c1, c2 = st.columns([1.4, 8.6], vertical_alignment="center")
-    with c1:
-        st.session_state.tts_enabled = st.toggle("TTS", value=_tts_enabled(), label_visibility="collapsed")
-    with c2:
-        st.caption("TTS " + ("ON ✅" if st.session_state.tts_enabled else "OFF"))
-
-@st.cache_data(show_spinner=False)
-def tts_mp3_bytes(text: str, lang: str = "ja") -> bytes:
-    # gTTS는 인터넷 필요 + 느릴 수 있어서 캐시 필수
-    t = _nfkc_str(text)
-    if not t:
-        return b""
-    fp = io.BytesIO()
-    gTTS(t, lang=lang).write_to_fp(fp)
-    return fp.getvalue()
-
-def play_tts(text: str, key: str):
-    """
-    - key는 위젯 충돌 방지용(문제별 고유)
-    - st.audio는 autoplay가 아니라 사용자가 눌러 재생(모바일 정책 안전)
-    """
-    if not _tts_enabled():
-        return
-    try:
-        b = tts_mp3_bytes(text, lang="ja")
-        if b:
-            st.audio(b, format="audio/mp3")
-    except Exception as e:
-        if is_admin():
-            st.warning("TTS 실패(네트워크/서버 환경 확인)")
-            st.exception(e)
 
 # ============================================================
 # ✅ Login UI
@@ -2276,7 +2193,6 @@ if st.session_state.page == "my":
 # ============================================================
 render_topcard()
 render_sound_toggle()
-render_tts_toggle()
 
 streak = st.session_state.get("streak_count")
 did_today = st.session_state.get("did_attend_today")
@@ -2537,22 +2453,11 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 # ============================================================
 for idx, q in enumerate(st.session_state.quiz):
     st.subheader(f"Q{idx+1}")
+    st.markdown(
+        f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+        unsafe_allow_html=True
+    )
 
-    st.markdown('<div class="qrow_anchor"></div>', unsafe_allow_html=True)
-    # ✅ 1) 여기: 문제 + 버튼을 한 묶음으로 먼저 출력
-    cL, cR = st.columns([14, 1], vertical_alignment="center")
-
-    with cL:
-        st.markdown(
-            f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
-            unsafe_allow_html=True
-        )
-
-    with cR:
-        if st.button("🔊", key=f"tts_{st.session_state.quiz_version}_{idx}", help="발음 듣기"):
-            speak_tts_browser(q.get("reading") or q.get("jp_word") or "")
-
-    # ✅ 2) 그 다음: 보기(라디오)
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
     prev = st.session_state.answers[idx]
     default_index = None
@@ -2565,6 +2470,7 @@ for idx, q in enumerate(st.session_state.quiz):
         index=default_index,
         key=widget_key,
         label_visibility="collapsed",
+        on_change=mark_progress_dirty,
     )
     st.session_state.answers[idx] = choice
 
@@ -2689,23 +2595,148 @@ if st.session_state.submitted:
             pass
 
 # ============================================================
-# ✅ 오답노트 (태그가 그대로 보이는 문제 해결판)
-# - components.html로 렌더 (마크다운 파서 우회)
+# ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
+# - st.markdown() 대신 components.html()로 렌더 (마크다운 파서 우회)
 # ============================================================
+
+
+# (필수) build_quiz_from_wrongs 버그 1줄 수정도 같이 반영하세요.
+# 아래 함수 안의 잘못된 base_pos 참조를 retry_df로 바꿉니다.
+def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list:
+    # ✅ 안전장치
+    pos_group = str(pos_group).strip().lower()
+    qtype = str(qtype).strip()
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
+    ensure_pool_ready()
+    pool = st.session_state["_pool"]
+
+    wrong_words = []
+    for w in (wrong_list or []):
+        key = str(w.get("단어", "")).strip()
+        if key:
+            wrong_words.append(key)
+    wrong_words = list(dict.fromkeys(wrong_words))
+
+    if not wrong_words:
+        st.warning("현재 오답 노트가 비어 있어요. 🙂")
+        return []
+
+    pos_filters = get_pos_filters()
+    retry_df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
+        & (pool["jp_word"].isin(wrong_words))
+    ].copy()
+
+    if len(retry_df) == 0:
+        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
+        st.stop()
+
+    retry_df = retry_df.sample(frac=1).reset_index(drop=True)
+
+    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외 (버그 수정)
+    if qtype == "reading":
+        retry_df = retry_df[retry_df["jp_word"].apply(_has_kanji)].copy()
+
+    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
+
+def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 안전장치
+    pos_group = str(pos_group).strip().lower()
+    qtype = str(qtype).strip()
+    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
+        qtype = "meaning"
+
+    ensure_pool_ready()
+    pool = st.session_state["_pool"]
+
+    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
+    keys = list(dict.fromkeys(keys))
+    if not keys:
+        st.warning("TOP10 단어가 비어 있어요.")
+        return []
+
+    pos_filters = get_pos_filters()
+    df = pool[
+        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
+        & (pool["jp_word"].astype(str).str.strip().isin(keys))
+    ].copy()
+
+    if qtype == "reading":
+        df = df[df["jp_word"].apply(_has_kanji)].copy()
+
+    if df.empty:
+        st.warning("TOP10 단어를 현재 풀(품사/기타 선택)에서 찾지 못했어요. (필터 조건 확인)")
+        return []
+
+    df = df.sample(frac=1).reset_index(drop=True)
+    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
+
+# ============================================================
+# ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
+#   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
+# ============================================================
+
 if st.session_state.wrong_list:
     st.subheader("❌ 오답 노트")
 
     def _s(v):
         return "" if v is None else str(v)
 
-    def _esc(x: str) -> str:
-        x = _s(x)
-        return (x.replace("&", "&amp;")
-                 .replace("<", "&lt;")
-                 .replace(">", "&gt;")
-                 .replace('"', "&quot;")
-                 .replace("'", "&#39;"))
+    cards = []
+    for w in st.session_state.wrong_list:
+        no = _s(w.get("No"))
+        qtext = _s(w.get("문제"))
+        picked = _s(w.get("내 답"))
+        correct = _s(w.get("정답"))
+        word = _s(w.get("단어"))
+        reading = _s(w.get("읽기"))
+        meaning = _s(w.get("뜻"))
+        ex_jp = _s(w.get("예문JP"))
+        ex_kr = _s(w.get("예문KR"))
+        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
+        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
 
+        # ✅ HTML 안전처리(태그 깨짐/주입 방지)
+        def _esc(x: str) -> str:
+            x = _s(x)
+            return (x.replace("&", "&amp;")
+                     .replace("<", "&lt;")
+                     .replace(">", "&gt;")
+                     .replace('"', "&quot;")
+                     .replace("'", "&#39;"))
+
+        card_html = f"""
+<div class="jp">
+  <div class="wrong-card">
+    <div class="wrong-top">
+      <div class="wrong-left">
+        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
+        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
+      </div>
+      <div class="tag">오답</div>
+    </div>
+
+    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
+    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
+    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
+    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
+    <div class="ans-row"><div class="ans-k">예문</div><div><b>{_esc(ex_jp)}</b><br/>{_esc(ex_kr)}</div></div>
+    {ex_block}
+  </div>
+</div>
+"""
+        cards.append(card_html)
+
+    all_cards_html = "".join(cards)
+
+    # 카드 높이(대략) 계산: 카드 1개당 190~220px 정도면 안정적
+    height = 190 * len(cards) + 10   # ✅ 여백 최소화
+    height = max(190, min(height, 1200))
+
+
+        # ✅ 공통 스타일 (preview / more 에서 둘 다 써야 하므로 문자열로 분리)
     STYLE = """
 <style>
 .wrong-card{
@@ -2758,56 +2789,35 @@ if st.session_state.wrong_list:
 </style>
 """
 
-    cards = []
-    for w in st.session_state.wrong_list:
-        no = _esc(w.get("No"))
-        qtext = _esc(w.get("문제"))
-        picked = _esc(w.get("내 답"))
-        correct = _esc(w.get("정답"))
-        word = _esc(w.get("단어"))
-        reading = _esc(w.get("읽기"))
-        meaning = _esc(w.get("뜻"))
-        ex_jp = _esc(w.get("예문JP"))
-        ex_kr = _esc(w.get("예문KR"))
-
-        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
-        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
-
-        card_html = f"""
-<div class="jp">
-  <div class="wrong-card">
-    <div class="wrong-top">
-      <div class="wrong-left">
-        <div class="wrong-title">Q{no}. {word}</div>
-        <div class="wrong-sub">{qtext} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
-      </div>
-      <div class="tag">오답</div>
-    </div>
-
-    <div class="ans-row"><div class="ans-k">내 답</div><div>{picked}</div></div>
-    <div class="ans-row"><div class="ans-k">정답</div><div><b>{correct}</b></div></div>
-    <div class="ans-row"><div class="ans-k">발음</div><div>{reading}</div></div>
-    <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
-    <div class="ans-row"><div class="ans-k">예문</div><div><b>{ex_jp}</b><br/>{ex_kr}</div></div>
-  </div>
-</div>
-"""
-        cards.append(card_html)
-
-    def _render_cards(card_list: list[str], max_height: int = 900):
+    def _render_cards(card_list: list[str], max_height: int = 650):
+        """카드 리스트를 components.html로 렌더"""
         if not card_list:
             return
         html = "".join(card_list)
-        h = 200 * len(card_list) + 20
-        h = max(220, min(h, max_height))
-        components.html(textwrap.dedent(f"{STYLE}\n{html}"), height=h)
 
+        # 카드 1장당 높이(대략)
+        h = 190 * len(card_list) + 10
+        h = max(190, min(h, max_height))
+
+        components.html(
+            textwrap.dedent(f"""
+{STYLE}
+{html}
+"""),
+            height=h,
+        )
+
+    # ✅ 3개만 먼저 보여주기
     MAX_PREVIEW = 3
-    _render_cards(cards[:MAX_PREVIEW], max_height=700)
+    preview_cards = cards[:MAX_PREVIEW]
+    rest_cards = cards[MAX_PREVIEW:]
 
-    if len(cards) > MAX_PREVIEW:
-        with st.expander(f"오답 더 보기 (+{len(cards)-MAX_PREVIEW}개)", expanded=False):
-            _render_cards(cards[MAX_PREVIEW:], max_height=1200)
+    _render_cards(preview_cards, max_height=650)
+
+    # ✅ 3개 초과면 "더 보기"로 나머지 펼치기
+    if rest_cards:
+        with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
+            _render_cards(rest_cards, max_height=900)
 
 # ============================================================
 # ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
@@ -2826,18 +2836,14 @@ if st.session_state.get("submitted", False):
             st.rerun()
 
     with cB:
+        # 오답이 있을 때만 활성화(없으면 disabled)
         has_wrongs = bool(st.session_state.get("wrong_list"))
-        if st.button(
-            "❌ 틀린 문제만 다시 풀기",
-            use_container_width=True,
-            disabled=not has_wrongs,
-            key="btn_retry_wrongs_bottom_global"
-        ):
+        if st.button("❌ 틀린 문제만 다시 풀기", use_container_width=True, disabled=not has_wrongs, key="btn_retry_wrongs_bottom_global"):
             clear_question_widget_keys()
             retry_quiz = build_quiz_from_wrongs(
-                wrong_list=st.session_state.wrong_list,
-                qtype=st.session_state.quiz_type,
-                pos_group=st.session_state.pos_group,
+                st.session_state.wrong_list,
+                st.session_state.quiz_type,
+                st.session_state.pos_group
             )
             start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
             st.session_state["_scroll_top_once"] = True
