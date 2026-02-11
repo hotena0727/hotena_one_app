@@ -46,6 +46,19 @@ import textwrap
 # ============================================================
 st.set_page_config(page_title="왕초보탈출 하테나일본어", layout="centered")
 
+# ============================================================
+# ✅ PWA/아이콘(외부 URL) - set_page_config 바로 아래
+# ============================================================
+ICON_192 = "href="/assets/icon-192.png"
+APPLE_180 = "href="/assets/apple-touch-icon.png"
+
+st.markdown(f"""
+<link rel="icon" href="{ICON_192}">
+<link rel="apple-touch-icon" href="{APPLE_180}">
+<meta name="theme-color" content="#0B2A6F">
+""", unsafe_allow_html=True)
+
+
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data" / "words_beginner.csv"   # ✅ 왕초보 단어 CSV
 PATTERN_CSV_PATH = BASE_DIR / "data" / "patterns_beginner.csv"
@@ -129,9 +142,6 @@ def render_pattern_cards():
         return
 
     st.markdown("""
-<link rel="icon" href="/assets/icon-192.png">
-<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-<meta name="theme-color" content="#0B2A6F">
 <style>
 .pat-card{
   border:1px solid rgba(120,120,120,0.22);
