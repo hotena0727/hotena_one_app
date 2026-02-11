@@ -518,6 +518,25 @@ def clear_question_widget_keys():
     for k in keys_to_del:
         st.session_state.pop(k, None)
 
+def speak_tts_browser(text: str, lang: str = "ja-JP"):
+    text = (text or "").replace("\\", "\\\\").replace("`", "\\`").replace("\n", " ")
+    components.html(
+        f"""
+        <script>
+          const t = `{text}`;
+          try {{
+            window.speechSynthesis.cancel();
+            const u = new SpeechSynthesisUtterance(t);
+            u.lang = "{lang}";
+            u.rate = 1.0;
+            u.pitch = 1.0;
+            window.speechSynthesis.speak(u);
+          }} catch (e) {{}}
+        </script>
+        """,
+        height=0,
+    )
+
 # ============================================================
 # ✅ POS filters (✅ B안 핵심)
 # ============================================================
@@ -2512,10 +2531,7 @@ for idx, q in enumerate(st.session_state.quiz):
 
     with cols[1]:
         if st.button("🔊", key=f"tts_{st.session_state.quiz_version}_{idx}", help="발음 듣기"):
-            # ✅ 여기만 나중에 실제 TTS 함수로 연결
-            # 예: play_tts(q["jp_word"]) 또는 play_tts(q["reading"])
-            pass
-
+            speak_tts_browser(q.get("reading") or q.get("jp_word") or "")
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
     prev = st.session_state.answers[idx]
