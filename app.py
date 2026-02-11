@@ -121,7 +121,7 @@ div.stButton > button {
 # ✅ CSV / Quiz constants
 # ============================================================
 BASE_DIR = Path(__file__).resolve().parent
-CSV_PATH = BASE_DIR / "data" / "words_magic_marked.csv"  # ✅ 마킹된 CSV 권장
+CSV_PATH = BASE_DIR / "data" / "one.csv"  # ✅ 마킹된 CSV 권장
 N = 10
 LEVELS = ["N5", "N4", "N3", "N2", "N1"]
 
