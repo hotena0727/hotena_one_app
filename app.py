@@ -2501,20 +2501,20 @@ if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
 for idx, q in enumerate(st.session_state.quiz):
     st.subheader(f"Q{idx+1}")
     
-    # ✅ [추가/변경] 문제 문장 + 작은 TTS 버튼(오른쪽)
-    cL, cR = st.columns([8.5, 1.5], vertical_alignment="center")
-    with cL:
-        st.markdown(
-            f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
-            unsafe_allow_html=True
-        )
-    with cR:
-        # 버튼을 작게: 아이콘만
-        if st.button("🔊", key=f"tts_btn_{st.session_state.quiz_version}_{idx}", help="발음 듣기"):
-            # ✅ 여기만 “실제 TTS 재생 함수”로 연결
-            # 예: play_tts(q["jp_word"]) 또는 play_tts(q["reading"]) 등
-            # play_tts(q["jp_word"])
-            pass
+    st.markdown(
+        f'<div class="jp" style="margin-top:-6px; margin-bottom:6px; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>',
+        unsafe_allow_html=True
+    )
+
+    # ✅ TTS A안: 단어(jp_word) 읽기 버튼
+    tts_text = str(q.get("jp_word", "")).strip()
+    if tts_text:
+        c_tts1, c_tts2 = st.columns([2.2, 7.8], vertical_alignment="center")
+        with c_tts1:
+            if st.button("🔊 읽어주기", use_container_width=True, key=f"btn_tts_q_{st.session_state.quiz_version}_{idx}"):
+                play_tts(tts_text, key=f"tts_q_{st.session_state.quiz_version}_{idx}")
+        with c_tts2:
+            st.caption("원하는 경우만 눌러서 들어보세요.")
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
     prev = st.session_state.answers[idx]
