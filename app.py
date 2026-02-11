@@ -40,6 +40,7 @@ import time
 import traceback
 import base64
 import textwrap 
+import html
 
 # ============================================================
 # ✅ Page Config + Paths
