@@ -2594,8 +2594,7 @@ if st.session_state.submitted:
             mode = quiz_label_map.get(w.get("유형"), w.get("유형", ""))
             pos_label = POS_LABEL_MAP.get(w.get("품사"), w.get("품사", ""))
 
-            st.markdown(
-                textwrap.dedent(f"""
+            card_html = f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
@@ -2612,9 +2611,10 @@ if st.session_state.submitted:
     <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
   </div>
 </div>
-"""),
-                unsafe_allow_html=True,
-            )
+"""
+
+# 카드 1개 높이(대충) — 내용 늘면 자동으로 스크롤 없이 보이도록 넉넉히
+components.html(card_html, height=190)
 
         if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_bottom"):
             clear_question_widget_keys()
