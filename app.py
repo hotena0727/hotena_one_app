@@ -74,7 +74,7 @@ SHOW_NAVER_TALK = "Y"
 NAVER_TALK_URL = "https://talk.naver.com/W45141"
 
 KST_TZ = "Asia/Seoul"
-N = 10  # 한 번에 10문항
+DEFAULT_N = 10  # 기본 10문항
 
 # ============================================================
 # ✅ POS / QUIZ TYPES  (✅ B안: pos_group + other 세부 선택)
@@ -776,6 +776,116 @@ def to_kst_naive(x):
     if pd.isna(ts):
         return ts
     return ts.tz_convert(KST_TZ).tz_localize(None)
+
+# ============================================================
+# ✅ PLAN / PROFILE (핵심) : profiles에서 plan 읽고, 없으면 생성(upsert)
+# ============================================================
+def _maybe_single(res):
+    """
+    supabase-py 버전 차이 대응:
+    - maybe_single() 있으면 그걸 쓰고
+    - 없으면 limit(1) 결과에서 첫 행 꺼내기
+    """
+    try:
+        # res는 execute() 결과라고 가정
+        if hasattr(res, "data") and isinstance(res.data, dict):
+            return res.data
+        if hasattr(res, "data") and isinstance(res.data, list):
+            return res.data[0] if res.data else None
+    except Exception:
+        pass
+    return None
+
+def get_my_profile(sb_authed, user):
+    """로그인된 유저의 profiles 레코드 가져오기. 없으면 생성(upsert)."""
+    if (sb_authed is None) or (user is None):
+        return None
+
+    uid = getattr(user, "id", None)
+    email = getattr(user, "email", None)
+    if not uid:
+        return None
+
+    # 1) select
+    try:
+        q = sb_authed.table("profiles").select("id,email,is_admin,plan,progress").eq("id", uid).limit(1).execute()
+        data = _maybe_single(q)
+        if data:
+            return data
+    except Exception:
+        pass
+
+    # 2) 없으면 생성(upsert)
+    #    RLS 정책: auth.uid()=id 인 insert/upsert 허용 필요
+    try:
+        sb_authed.table("profiles").upsert(
+            {
+                "id": uid,
+                "email": email,
+                "is_admin": False,
+                "plan": "free",
+                "progress": {},
+            },
+            on_conflict="id",
+        ).execute()
+    except Exception:
+        pass
+
+    # 3) 다시 조회
+    try:
+        q2 = sb_authed.table("profiles").select("id,email,is_admin,plan,progress").eq("id", uid).limit(1).execute()
+        return _maybe_single(q2)
+    except Exception:
+        return None
+
+def get_plan_and_flags(profile: dict):
+    plan = (profile.get("plan") or "free")
+    plan = str(plan).lower().strip()
+
+    flags = {
+        "is_pro": plan == "pro",
+
+        # Free 제한
+        "max_quiz_len_free": 10,
+        "max_wrongs_list_free": 10,  # 오답 리스트 '최근 10개만' 보여주기 등
+
+        # Pro 기능들
+        "allow_retry_wrongs": plan == "pro",
+        "allow_weak_words": plan == "pro",
+        "allow_period_stats": plan == "pro",
+        "allowed_quiz_lens": [10] if plan != "pro" else [10, 30, 50],
+    }
+    return plan, flags
+
+def ensure_plan_cached():
+    """
+    어디에서든 호출 가능:
+    - st.session_state.plan / flags / profile_cached 채워둠
+    """
+    if st.session_state.get("_plan_cached"):
+        return
+
+    u = st.session_state.get("user")
+    sb_authed_local = get_authed_sb()
+    if (u is None) or (sb_authed_local is None):
+        return
+
+    prof = get_my_profile(sb_authed_local, u)
+    if not prof:
+        # profiles 접근/RLS가 막혀 있으면 여기로 떨어짐
+        st.session_state.plan = "free"
+        st.session_state.flags = {"is_pro": False, "allowed_quiz_lens": [10], "max_wrongs_list_free": 10,
+                                  "allow_retry_wrongs": False, "allow_weak_words": False, "allow_period_stats": False,
+                                  "max_quiz_len_free": 10}
+        st.session_state.profile_cached = None
+        st.session_state["_plan_cached"] = True
+        return
+
+    plan, flags = get_plan_and_flags(prof)
+    st.session_state.plan = plan
+    st.session_state.flags = flags
+    st.session_state.profile_cached = prof
+    st.session_state["_plan_cached"] = True
 
 # ============================================================
 # ✅ DB functions (기존 테이블 구조 그대로 활용)
@@ -1735,6 +1845,15 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     }
 
 def build_quiz(qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 퀴즈 길이(플랜 제한 반영)
+    n = int(st.session_state.get("quiz_len", DEFAULT_N) or DEFAULT_N)
+
+    # ✅ Free면 강제 10
+    flags = st.session_state.get("flags", {})
+    if not flags.get("is_pro", False):
+        n = int(flags.get("max_quiz_len_free", 10) or 10)
+        st.session_state.quiz_len = n
+        
     # ✅ 안전장치: 제한 그룹에서는 reading 강제 금지
     pos_group = str(pos_group).strip().lower()
     qtype = str(qtype).strip()
@@ -1797,6 +1916,15 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
 # ============================================================
 
 def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 퀴즈 길이(플랜 제한 반영)
+    n = int(st.session_state.get("quiz_len", DEFAULT_N) or DEFAULT_N)
+
+    # ✅ Free면 강제 10
+    flags = st.session_state.get("flags", {})
+    if not flags.get("is_pro", False):
+        n = int(flags.get("max_quiz_len_free", 10) or 10)
+        st.session_state.quiz_len = n
+        
     # ✅ 안전장치
     pos_group = str(pos_group).strip().lower()
     qtype = str(qtype).strip()
@@ -1830,6 +1958,15 @@ def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) 
 
 
 def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list[dict]:
+    # ✅ 퀴즈 길이(플랜 제한 반영)
+    n = int(st.session_state.get("quiz_len", DEFAULT_N) or DEFAULT_N)
+
+    # ✅ Free면 강제 10
+    flags = st.session_state.get("flags", {})
+    if not flags.get("is_pro", False):
+        n = int(flags.get("max_quiz_len_free", 10) or 10)
+        st.session_state.quiz_len = n
+        
     # ✅ 안전장치
     pos_group = str(pos_group).strip().lower()
     qtype = str(qtype).strip()
@@ -2232,6 +2369,13 @@ user_id = user.id
 user_email = getattr(user, "email", None) or st.session_state.get("login_email")
 sb_authed = get_authed_sb()
 
+# ✅ 로그인 이후: plan/flags 캐시
+ensure_plan_cached()
+plan = st.session_state.get("plan", "free")
+flags = st.session_state.get("flags", {"is_pro": False, "allowed_quiz_lens": [10], "max_wrongs_list_free": 10,
+                                       "allow_retry_wrongs": False, "allow_weak_words": False, "allow_period_stats": False,
+                                       "max_quiz_len_free": 10})
+
 # ✅ pos_group 기반 available_types 적용
 try:
     if sb_authed is not None:
@@ -2305,6 +2449,41 @@ if st.session_state.page == "my":
         st.error("마이페이지에서 예외가 발생했습니다. 아래 Traceback을 확인해 주세요.")
         st.code(traceback.format_exc())
     st.stop()
+
+# ============================================================
+# ✅ 플랜 표시 + 퀴즈 길이 선택(게이트)
+# ============================================================
+ensure_plan_cached()
+plan = st.session_state.get("plan", "free")
+flags = st.session_state.get("flags", {})
+
+st.caption(f"현재 플랜: **{plan.upper()}**")
+
+# 기본값 세팅
+if "quiz_len" not in st.session_state:
+    st.session_state.quiz_len = flags.get("allowed_quiz_lens", [10])[0]
+
+# Free면 강제 10
+if not flags.get("is_pro", False):
+    st.session_state.quiz_len = int(flags.get("max_quiz_len_free", 10) or 10)
+
+quiz_len_pick = st.segmented_control(
+    label="퀴즈 길이",
+    options=flags.get("allowed_quiz_lens", [10]),
+    default=st.session_state.quiz_len,
+    format_func=lambda x: f"{int(x)}문제",
+    key="seg_quiz_len",
+)
+
+# 변경 반영
+if quiz_len_pick and int(quiz_len_pick) != int(st.session_state.quiz_len):
+    st.session_state.quiz_len = int(quiz_len_pick)
+    clear_question_widget_keys()
+    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+    start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+    mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
+    st.session_state["_scroll_top_once"] = True
+    st.rerun()
 
 # ============================================================
 # ✅ Quiz Page
@@ -2689,6 +2868,13 @@ if st.session_state.submitted:
 
     st.session_state.wrong_list = wrong_list
 
+    # ✅ Free: 오답 리스트 표시 제한
+    ensure_plan_cached()
+    flags = st.session_state.get("flags", {})
+    if not flags.get("is_pro", False):
+        st.session_state.wrong_list = (st.session_state.get("wrong_list") or [])[: int(flags.get("max_wrongs_list_free", 10) or 10)]
+
+
     st.success(f"점수: {score} / {quiz_len}")
     ratio = score / quiz_len if quiz_len else 0
 
@@ -2751,6 +2937,27 @@ if st.session_state.submitted:
             save_progress_to_db(sb_authed_local, user_id)
         except Exception:
             pass
+
+# ✅ Pro 전용: 오답만 다시 풀기
+ensure_plan_cached()
+flags = st.session_state.get("flags", {})
+
+if flags.get("allow_retry_wrongs", False):
+    if st.button("❌ 오답만 다시 풀기", use_container_width=True, key="btn_retry_wrongs_after_submit"):
+        clear_question_widget_keys()
+        quiz2 = build_quiz_from_wrongs(
+            wrong_list=st.session_state.get("wrong_list", []),
+            qtype=st.session_state.get("quiz_type", "meaning"),
+            pos_group=st.session_state.get("pos_group", "noun"),
+        )
+        start_quiz_state(quiz2, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
+        mark_quiz_as_seen(quiz2, st.session_state.get("quiz_type", "meaning"), st.session_state.get("pos_group","noun"))
+        st.session_state.submitted = False
+        st.session_state["_scroll_top_once"] = True
+        st.rerun()
+else:
+    st.button("❌ 오답만 다시 풀기 (PRO)", disabled=True, use_container_width=True, key="btn_retry_wrongs_disabled")
+    st.info("PRO에서 ‘오답만 다시 풀기’ 기능이 열립니다.")
 
 # ============================================================
 # ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
