@@ -2410,33 +2410,34 @@ user_id = st.session_state.get("user_id")
 daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
 
 # ============================================================
-# ✅ PAYWALL: 여기서 "안내만" 띄우고 아래 렌더 전부 차단
+# ✅ PAYWALL CHECK (render_topcard() 보다 위!!)
 # ============================================================
-PRO_URL = "https://YOUR-PRO-PAGE-URL"  # 결제/안내 페이지
+from datetime import datetime, timedelta, timezone
 
-def render_paywall(daily_solved: int):
-    st.markdown("## 🔒 오늘의 무료 학습량(30문항)을 모두 사용하셨어요")
-    st.write("무료는 하루 **30문항(3세트)** 까지 이용 가능합니다.")
-    st.write("PRO로 업그레이드하면 계속 학습할 수 있어요.")
+KST = timezone(timedelta(hours=9))
+FREE_LIMIT = 30
 
-    # ✅ '긴 버튼'으로 링크 이동
-    st.link_button("🚀 PRO 업그레이드", PRO_URL, use_container_width=True)
+def get_daily_solved_from_db(sb, user_id: str) -> int:
+    now = datetime.now(KST)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_iso = start.isoformat()
+    res = (
+        sb.table("quiz_attempts")
+        .select("quiz_len")
+        .eq("user_id", user_id)
+        .gte("created_at", start_iso)
+        .execute()
+    )
+    rows = res.data or []
+    return int(sum(int(r.get("quiz_len") or 0) for r in rows))
 
-    st.caption(f"오늘 FREE 사용량: {daily_solved}/30문항 · 제한 상태에서는 어떤 유형을 눌러도 문제가 표시되지 않습니다.")
+user_id = st.session_state.get("user_id")
+daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+is_locked = (not is_pro()) and (daily_solved >= FREE_LIMIT)
 
-    FREE_LIMIT = 30  # 하루 무료 30문항
-    
-    # 1) 오늘 푼 문항 수 계산 (DB 기준)
-    user_id = st.session_state.get("user_id")
-    daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
-
-    # 2) 잠금 여부 판단 (is_pro는 "함수"로 통일)
-    is_locked = (not is_pro()) and (daily_solved >= FREE_LIMIT)
-
-    # 3) 잠겼으면 안내만 보여주고 아래 렌더링 차단
-    if is_locked:
-        render_paywall()
-        st.stop()
+if is_locked:
+    render_paywall(daily_solved)
+    st.stop()
 
 # ============================================================
 # ✅ Quiz Page
