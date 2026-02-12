@@ -133,7 +133,7 @@ PATTERNS = {
     ],
 }
 
-def render_pattern_cards():
+def render_pattern_cards(limit: int = 1):
     ensure_patterns_ready()
 
     g = str(st.session_state.get("pos_group", "noun")).lower().strip()
@@ -158,6 +158,26 @@ def render_pattern_cards():
 .pat-ex{ margin-top:10px; font-size:13px; line-height:1.55; }
 .pat-ex b{ font-weight:900; }
 </style>
+""", unsafe_allow_html=True)
+
+    limit = 1 if (limit is None) else int(limit)
+    if limit <= 0:
+        return
+
+    for it in items[:limit]:
+        ex_html = ""
+        for jp, kr in it.get("ex", [])[:2]:
+            ex_html += f"<div class='pat-ex'><b>{jp}</b><br/>{kr}</div>"
+
+        st.markdown(f"""
+<div class="jp">
+  <div class="pat-card">
+    <div class="pat-title">📌 {it.get("title","")}</div>
+    <div class="pat-main"><b>{it.get("jp","")}</b></div>
+    <div class="pat-sub">{it.get("kr","")}</div>
+    {ex_html}
+  </div>
+</div>
 """, unsafe_allow_html=True)
 
     for it in items[:1]:
@@ -2625,7 +2645,7 @@ with st.expander("📌 필수패턴 (카드로 빠르게 익히기)", expanded=F
     else:
         st.caption("🔒 PRO에서 품사별 패턴 카드 전체가 열립니다.")
         # 무료 체험: 1장만
-        render_pattern_cards(limit=1)
+        render_pattern_cards()
 
 st.markdown('<div class="tight-divider">', unsafe_allow_html=True)
 st.divider()
