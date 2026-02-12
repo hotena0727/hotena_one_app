@@ -1047,6 +1047,9 @@ def render_tts_bootstrap():
 
       // 가능하면 ja-JP 보이스 선택
       const pickVoice = () => {
+        if (spoken) return;          // ✅ 핵심: 1회만
+        spoken = true;
+        
         const vs = w.speechSynthesis.getVoices() || [];
         const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
         if (ja) u.voice = ja;
