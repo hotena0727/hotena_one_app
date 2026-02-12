@@ -2971,97 +2971,156 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
   font-size:12px;
   opacity:.72;
   margin-bottom:10px;
+  line-height:1.35;
 }
 .wrong-row{
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
   margin-top:8px;
-  font-size:13px;
-  line-height:1.55;
 }
-.wrong-row b{
+.wrong-k{
+  flex:0 0 auto;
   font-weight:900;
+  opacity:.78;
+  font-size:13px;
+  min-width:64px;
 }
-.wrong-ex{
-  margin-top:10px;
-  padding-top:10px;
-  border-top: 1px dashed rgba(120,120,120,0.25);
+.wrong-v{
+  flex:1 1 auto;
   font-size:13px;
   line-height:1.55;
-  opacity:.92;
 }
-.wrong-ex .kr{
-  opacity:.82;
-  margin-top:4px;
+.wrong-chip{
+  display:inline-block;
+  border:1px solid rgba(120,120,120,0.22);
+  background: rgba(255,255,255,0.03);
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:12px;
+  font-weight:900;
+  margin-right:6px;
+  margin-top:6px;
+  white-space:nowrap;
 }
 </style>
 """, unsafe_allow_html=True)
 
-    # ✅ 오답을 품사그룹별로 묶기
-    by_group: dict[str, list[dict]] = {}
-    for w in (st.session_state.get("wrong_list") or []):
+    # ✅ 품사그룹별로 묶기
+    grouped: dict[str, list[dict]] = {}
+    for w in st.session_state.get("wrong_list", []):
         g = str(w.get("품사", "") or "unknown").strip().lower()
-        by_group.setdefault(g, []).append(w)
+        grouped.setdefault(g, []).append(w)
 
-    # 표시 순서(현재 품사 먼저, 그 다음 나머지)
-    cur_g = str(st.session_state.get("pos_group", "noun")).strip().lower()
-    ordered_groups = [cur_g] + [g for g in by_group.keys() if g != cur_g]
+    # 보기 순서: noun/adj_i/adj_na/verb/other/unknown
+    group_order = ["noun", "adj_i", "adj_na", "verb", "other", "unknown"]
+    ordered_keys = [k for k in group_order if k in grouped] + [k for k in grouped.keys() if k not in group_order]
 
-    for g in ordered_groups:
-        items = by_group.get(g, [])
-        if not items:
-            continue
-
+    for g in ordered_keys:
+        items = grouped.get(g, [])
         title = POS_LABEL_MAP.get(g, g)
-        with st.expander(f"📌 {title} 오답 ({len(items)}개)", expanded=(g == cur_g)):
-            for w in items:
-                no = _s(w.get("No"))
-                prob = _s(w.get("문제"))
-                mya = _s(w.get("내 답"))
-                ans = _s(w.get("정답"))
-                word = _s(w.get("단어"))
-                yomi = _s(w.get("읽기"))
-                imi = _s(w.get("뜻"))
 
-                # 예문은 quiz에서 가져온 값이 아니라 wrong_list에 안 넣었으니,
-                # 현재는 “단어 풀에서 조회”해서 붙여줌 (있으면)
-                ex_jp = ""
-                ex_kr = ""
-                try:
-                    ensure_pool_ready()
-                    pool = st.session_state.get("_pool")
-                    if isinstance(pool, pd.DataFrame) and word:
-                        hit = pool[pool["jp_word"].astype(str).str.strip() == word]
-                        if not hit.empty:
-                            ex_jp = str(hit.iloc[0].get("example_jp", "")).strip()
-                            ex_kr = str(hit.iloc[0].get("example_kr", "")).strip()
-                except Exception:
-                    pass
+        with st.expander(f"📚 {title} 오답 ({len(items)}개)", expanded=True):
+            for w in items:
+                no = int(w.get("No", 0) or 0)
+                prob = _esc(w.get("문제", ""))
+                mya = _esc(w.get("내 답", ""))
+                ans = _esc(w.get("정답", ""))
+                word = _esc(w.get("단어", ""))
+                yomi = _esc(w.get("읽기", ""))
+                mean = _esc(w.get("뜻", ""))
+                qtype = str(w.get("유형", "")).strip()
+
+                # ✅ 예문은 quiz 데이터에서 가져오면 가장 좋지만,
+                #   wrong_list에 example을 안 넣었으니 현재는 표시 생략(원하면 wrong_list에 같이 저장 가능)
+                #   여기서는 단어/읽기/뜻 중심으로 카드 제공
+
+                chips = []
+                chips.append(f"<span class='wrong-chip'>No.{no}</span>")
+                chips.append(f"<span class='wrong-chip'>{_esc(quiz_label_map.get(qtype, qtype))}</span>")
+                chips_html = "".join(chips)
 
                 st.markdown(
                     f"""
 <div class="jp">
   <div class="wrong-card">
-    <div class="wrong-title">❌ {no}번 · { _esc(word) }</div>
-    <div class="wrong-meta">{_esc(prob)}</div>
+    <div class="wrong-title">{chips_html}</div>
+    <div class="wrong-meta">{prob}</div>
 
-    <div class="wrong-row"><b>내 답</b> : {_esc(mya)}</div>
-    <div class="wrong-row"><b>정답</b> : {_esc(ans)}</div>
-    <div class="wrong-row"><b>읽기</b> : {_esc(yomi)}</div>
-    <div class="wrong-row"><b>뜻</b> : {_esc(imi)}</div>
-    {"<div class='wrong-ex'><b>예문</b><br/>" + _esc(ex_jp) + "<div class='kr'>" + _esc(ex_kr) + "</div></div>" if (ex_jp or ex_kr) else ""}
+    <div class="wrong-row">
+      <div class="wrong-k">내 답</div>
+      <div class="wrong-v">{mya}</div>
+    </div>
+    <div class="wrong-row">
+      <div class="wrong-k">정답</div>
+      <div class="wrong-v"><b>{ans}</b></div>
+    </div>
+
+    <div class="wrong-row">
+      <div class="wrong-k">단어</div>
+      <div class="wrong-v"><b>{word}</b></div>
+    </div>
+
+    <div class="wrong-row">
+      <div class="wrong-k">읽기</div>
+      <div class="wrong-v">{yomi}</div>
+    </div>
+
+    <div class="wrong-row">
+      <div class="wrong-k">뜻</div>
+      <div class="wrong-v">{mean}</div>
+    </div>
   </div>
 </div>
 """,
                     unsafe_allow_html=True,
                 )
 
-                # ✅ PRO일 때만 발음 버튼 제공 (원하신 정책)
+                # ✅ PRO: 오답 카드에서 바로 발음 듣기 버튼 제공
                 if is_pro():
-                    # meaning 퀴즈일 때는 reading을 읽는 게 자연스러움
-                    tts_text = (yomi or word).strip()
-                    render_pronounce_button(tts_text, uid=f"wrong_{g}_{no}", label="🔊 발음")
-                else:
-                    st.caption("🔒 오답 발음 듣기는 PRO에서 제공됩니다.")
+                    # 의미퀴즈/오답복습에서도 “읽기”를 들려주는 게 학습 효율 좋음
+                    tts = (yomi or word).strip()
+                    if tts:
+                        render_pronounce_button(tts, uid=f"wrong_{st.session_state.get('quiz_version',0)}_{no}", label="🔊 발음")
 
-    # ✅ (선택) 제출 후 네이버톡 플로팅 배너
-    if SHOW_NAVER_TALK == "Y":
-        render_naver_talk()
+            # ✅ 오답만 다시 풀기 버튼(품사그룹별 expander 안에 1개)
+            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+            if is_pro():
+                if st.button(
+                    f"❌ {title} 오답만 다시 풀기 (최대 {N}개)",
+                    type="primary",
+                    use_container_width=True,
+                    key=f"btn_retry_wrong_{g}",
+                ):
+                    clear_question_widget_keys()
+
+                    # 현재 선택된 유형이 other에서 reading이면 meaning으로 강제됨(함수 내부 안전장치 있음)
+                    retry_quiz = build_quiz_from_wrongs(
+                        wrong_list=items,
+                        qtype=st.session_state.get("quiz_type", "meaning"),
+                        pos_group=st.session_state.get("pos_group", "noun"),
+                    )
+
+                    start_quiz_state(retry_quiz, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
+                    mark_quiz_as_seen(retry_quiz, st.session_state.get("quiz_type", "meaning"), st.session_state.get("pos_group", "noun"))
+                    st.session_state["_scroll_top_once"] = True
+                    st.rerun()
+            else:
+                st.caption("🔒 오답만 다시풀기는 PRO에서 제공됩니다.")
+
+# ============================================================
+# ✅ 제출 후: 네이버톡 (옵션)
+# ============================================================
+if st.session_state.get("submitted") and (SHOW_NAVER_TALK == "Y"):
+    render_naver_talk()
+
+# ============================================================
+# ✅ (선택) 제출 후: 진행중 저장(안전)
+# ============================================================
+try:
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is not None and st.session_state.get("user"):
+        save_progress_to_db(sb_authed_local, st.session_state.user.id)
+except Exception:
+    pass
