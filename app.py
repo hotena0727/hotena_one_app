@@ -2936,9 +2936,8 @@ if st.session_state.submitted:
             save_progress_to_db(sb_authed_local, user_id)
         except Exception:
             pass
-
 # ============================================================
-# ✅ 제출 후: 오답 노트 (카드형 + 품사그룹별 expander)
+# ✅ 제출 후: 오답 노트 (카드형 + 품사그룹별 expander + 예문 + PRO 발음)
 # ============================================================
 if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
     st.subheader("❌ 오답 노트")
@@ -2954,95 +2953,62 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
                  .replace('"', "&quot;")
                  .replace("'", "&#39;"))
 
-    st.markdown(
-        """
+    st.markdown("""
 <style>
 .wrong-card{
   border: 1px solid rgba(120,120,120,0.25);
   border-radius: 16px;
-  padding: 14px 14px;
-  margin: 10px 0;
+  padding: 16px;
+  margin: 14px 0;
   background: rgba(255,255,255,0.02);
 }
-.wrong-top{
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:12px;
-  margin-bottom:10px;
-}
-.wrong-no{
+.wrong-title{
   font-weight:900;
-  font-size:14px;
-  opacity:.9;
-  white-space:nowrap;
-}
-.wrong-q{
-  font-size:14px;
-  font-weight:800;
-  line-height:1.45;
+  font-size:15px;
+  margin-bottom:6px;
 }
 .wrong-row{
   display:grid;
   grid-template-columns: 80px 1fr;
   gap:10px;
-  margin: 6px 0;
+  margin:6px 0;
 }
 .wrong-k{
   font-size:12px;
   font-weight:900;
-  opacity:.70;
+  opacity:.7;
 }
 .wrong-v{
   font-size:13px;
   font-weight:700;
-  line-height:1.55;
+  line-height:1.6;
   word-break:break-word;
 }
-.wrong-v b{ font-weight:900; }
-.wrong-meta{
+.bad{ color:#ff5b5b; font-weight:900; }
+.good{ color:#6bd968; font-weight:900; }
+.example-box{
   margin-top:10px;
+  padding:10px;
+  border-radius:10px;
+  background:rgba(255,255,255,0.04);
+  font-size:12px;
+  line-height:1.6;
+}
+.pro-lock{
   font-size:12px;
   opacity:.75;
-  line-height:1.55;
-}
-.bad{
-  color:#ff5b5b;
-  font-weight:900;
-}
-.good{
-  color:#6bd968;
-  font-weight:900;
+  margin-top:8px;
 }
 </style>
-""",
-        unsafe_allow_html=True,
-    )
+""", unsafe_allow_html=True)
 
-    # ✅ 품사(그룹)별로 묶기
     grouped = {}
-    for w in (st.session_state.wrong_list or []):
-        g = str(w.get("품사", "unknown") or "unknown").strip().lower()
+    for w in st.session_state.wrong_list:
+        g = str(w.get("품사", "unknown")).strip().lower()
         grouped.setdefault(g, []).append(w)
 
-    # ✅ 상단: “틀린 문제만 다시 풀기” (PRO)
-    if is_pro():
-        if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_quizpage"):
-            clear_question_widget_keys()
-            quiz = build_quiz_from_wrongs(
-                wrong_list=st.session_state.wrong_list,
-                qtype=st.session_state.get("quiz_type", "meaning"),
-                pos_group=st.session_state.get("pos_group", "noun"),
-            )
-            start_quiz_state(quiz, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
-            mark_quiz_as_seen(quiz, st.session_state.get("quiz_type", "meaning"), st.session_state.get("pos_group", "noun"))
-            st.session_state["_scroll_top_once"] = True
-            st.rerun()
-    else:
-        st.caption("🔒 ‘틀린 문제만 다시 풀기’는 PRO 기능입니다.")
-
-    # ✅ 품사 그룹별 expander + 카드 렌더
     order = ["noun", "verb", "adj_i", "adj_na", "other", "unknown"]
+
     for g in order:
         if g not in grouped:
             continue
@@ -3050,7 +3016,7 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
         title = POS_LABEL_MAP.get(g, g)
         items = grouped[g]
 
-        with st.expander(f"📌 {title} 오답 ({len(items)}개)", expanded=(g == st.session_state.get("pos_group", "noun"))):
+        with st.expander(f"📌 {title} 오답 ({len(items)}개)", expanded=(g == st.session_state.get("pos_group"))):
             for w in items:
                 no = _esc(w.get("No"))
                 qtxt = _esc(w.get("문제"))
@@ -3059,18 +3025,19 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
                 word = _esc(w.get("단어"))
                 yomi = _esc(w.get("읽기"))
                 meaning = _esc(w.get("뜻"))
-                qtype = _esc(quiz_label_map.get(str(w.get("유형", "")), str(w.get("유형", ""))))
+                ex_jp = _esc(w.get("example_jp"))
+                ex_kr = _esc(w.get("example_kr"))
+                qtype = _esc(quiz_label_map.get(str(w.get("유형","")), str(w.get("유형",""))))
 
-                st.markdown(
-                    f"""
+                st.markdown(f"""
 <div class="jp">
   <div class="wrong-card">
-    <div class="wrong-top">
-      <div class="wrong-no">No.{no}</div>
-      <div style="text-align:right; font-size:12px; opacity:.75; font-weight:800;">유형: {qtype}</div>
-    </div>
+    <div class="wrong-title">No.{no} | {word} ({yomi})</div>
 
-    <div class="wrong-q">{qtxt}</div>
+    <div class="wrong-row">
+      <div class="wrong-k">문제</div>
+      <div class="wrong-v">{qtxt}</div>
+    </div>
 
     <div class="wrong-row">
       <div class="wrong-k">내 답</div>
@@ -3083,77 +3050,28 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
     </div>
 
     <div class="wrong-row">
-      <div class="wrong-k">단어</div>
-      <div class="wrong-v"><b>{word}</b>　({yomi})</div>
-    </div>
-
-    <div class="wrong-row">
       <div class="wrong-k">뜻</div>
       <div class="wrong-v">{meaning}</div>
     </div>
-  </div>
+""", unsafe_allow_html=True)
+
+                # ✅ 예문 (있을 때만 표시)
+                if ex_jp or ex_kr:
+                    st.markdown(f"""
+<div class="example-box">
+  <div><b>예문</b>：{ex_jp}</div>
+  <div><b>해석</b>：{ex_kr}</div>
 </div>
-""",
-                    unsafe_allow_html=True,
-                )
-                
-    for w in wrongs:
-        g = str(w.get("품사") or st.session_state.get("pos_group") or "noun").strip().lower()
-        grouped.setdefault(g, []).append(w)
+""", unsafe_allow_html=True)
 
-    # ✅ 표시 순서: 현재 선택 품사 먼저, 그 다음 나머지
-    current_g = str(st.session_state.get("pos_group", "noun")).strip().lower()
-    order = [current_g] + [k for k in grouped.keys() if k != current_g]
-
-    for g in order:
-        items = grouped.get(g, [])
-        if not items:
-            continue
-
-        title = POS_LABEL_MAP.get(g, g)
-        with st.expander(f"📂 {title} 오답 ({len(items)}개)", expanded=(g == current_g)):
-            for w in items:
-                no = _esc(w.get("No"))
-                qtext = _esc(w.get("문제"))
-                mine = _esc(w.get("내 답"))
-                ans = _esc(w.get("정답"))
-                word = _esc(w.get("단어"))
-                reading = _esc(w.get("읽기"))
-                meaning = _esc(w.get("뜻"))
-                qt = _esc(quiz_label_map.get(w.get("유형"), w.get("유형")))
-                # 태그: 유형
-                tag_html = f"<span class='tag'>유형: {qt}</span>"
-
-                st.markdown(
-                    f"""
-<div class="jp">
-  <div class="wrong-card">
-    <div class="wrong-top">
-      <div class="wrong-left">
-        <div class="wrong-title">#{no} {qtext}</div>
-        <div class="wrong-sub">{tag_html}</div>
-      </div>
-      <div class="tag">{word}</div>
-    </div>
-
-    <div class="ans-row"><div class="ans-k">내 답</div><div>{mine}</div></div>
-    <div class="ans-row"><div class="ans-k">정답</div><div><b>{ans}</b></div></div>
-    <div class="ans-row"><div class="ans-k">읽기</div><div>{reading}</div></div>
-    <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
-  </div>
-</div>
-""",
-                    unsafe_allow_html=True,
-                )
-
-                # ✅ PRO면 오답에서도 발음 버튼 제공(뜻문제일 때 유용)
+                # ✅ PRO 전용 발음 버튼
                 if is_pro():
-                    tts_text = (w.get("읽기") or "").strip()
-                    if tts_text:
-                        render_pronounce_button(tts_text, uid=f"wrong_{g}_{no}", label="🔊 발음")
+                    if yomi:
+                        render_pronounce_button(yomi, uid=f"wrong_{g}_{no}", label="🔊 발음 듣기")
+                else:
+                    st.markdown("<div class='pro-lock'>🔒 발음 듣기는 PRO 기능입니다.</div>", unsafe_allow_html=True)
 
-            st.markdown("<div class='smallhint jp'>오답은 ‘마이페이지 → 틀린 문제만 다시 풀기’로 바로 복습하면 가장 빠르게 줄어듭니다 🙂</div>",
-                        unsafe_allow_html=True)
+                st.markdown("</div></div>", unsafe_allow_html=True)
 
     # ✅ 제출 후에만 네이버톡 노출 옵션
     if SHOW_NAVER_TALK == "Y":
