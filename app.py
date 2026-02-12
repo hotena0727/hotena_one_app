@@ -2969,97 +2969,128 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
   align-items:flex-start;
   justify-content:space-between;
   gap:12px;
-  margin-bottom: 8px;
+  margin-bottom:10px;
 }
-.wrong-left{ min-width:0; }
-.wrong-title{
-  font-weight: 900;
-  font-size: 15px;
-  margin-bottom: 4px;
-  overflow:hidden;
-  text-overflow:ellipsis;
+.wrong-no{
+  font-weight:900;
+  font-size:14px;
+  opacity:.9;
   white-space:nowrap;
 }
-.wrong-sub{
-  opacity: 0.8;
-  font-size: 12px;
+.wrong-q{
+  font-size:14px;
+  font-weight:800;
+  line-height:1.45;
 }
-.tag{
-  display:inline-flex;
-  align-items:center;
-  gap:6px;
-  padding: 5px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 800;
-  border: 1px solid rgba(120,120,120,0.25);
-  background: rgba(255,255,255,0.03);
-  white-space: nowrap;
-}
-.ans-row{
+.wrong-row{
   display:grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 80px 1fr;
   gap:10px;
-  margin-top:6px;
-  font-size: 13px;
-  line-height: 1.5;
+  margin: 6px 0;
 }
-.ans-k{ opacity: 0.72; font-weight: 800; }
-.smallhint{ opacity:.72; font-size:12px; margin-top:10px; }
+.wrong-k{
+  font-size:12px;
+  font-weight:900;
+  opacity:.70;
+}
+.wrong-v{
+  font-size:13px;
+  font-weight:700;
+  line-height:1.55;
+  word-break:break-word;
+}
+.wrong-v b{ font-weight:900; }
+.wrong-meta{
+  margin-top:10px;
+  font-size:12px;
+  opacity:.75;
+  line-height:1.55;
+}
+.bad{
+  color:#ff5b5b;
+  font-weight:900;
+}
+.good{
+  color:#6bd968;
+  font-weight:900;
+}
 </style>
 """,
         unsafe_allow_html=True,
     )
 
-    wrongs = st.session_state.wrong_list
+    # ✅ 품사(그룹)별로 묶기
+    grouped = {}
+    for w in (st.session_state.wrong_list or []):
+        g = str(w.get("품사", "unknown") or "unknown").strip().lower()
+        grouped.setdefault(g, []).append(w)
 
-    # ✅ 그룹별로 묶기 (없으면 current_pos_group로 fallback)
-    grouped: dict[str, list[dict]] = {}
-    
-    # ✅ 그룹 키 결정: "품사" 필드가 있으면 그걸, 없으면 현재 pos_group
-    for w in wrongs:
-        gk = str(w.get("품사") or st.session_state.get("pos_group", "noun")).strip().lower()
-        grouped.setdefault(gk, []).append(w)
+    # ✅ 상단: “틀린 문제만 다시 풀기” (PRO)
+    if is_pro():
+        if st.button("❌ 틀린 문제만 다시 풀기", type="primary", use_container_width=True, key="btn_retry_wrongs_quizpage"):
+            clear_question_widget_keys()
+            quiz = build_quiz_from_wrongs(
+                wrong_list=st.session_state.wrong_list,
+                qtype=st.session_state.get("quiz_type", "meaning"),
+                pos_group=st.session_state.get("pos_group", "noun"),
+            )
+            start_quiz_state(quiz, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
+            mark_quiz_as_seen(quiz, st.session_state.get("quiz_type", "meaning"), st.session_state.get("pos_group", "noun"))
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+    else:
+        st.caption("🔒 ‘틀린 문제만 다시 풀기’는 PRO 기능입니다.")
 
-    # ✅ 표시 순서(원하는 순서로)
-    order = ["noun", "verb", "adj_i", "adj_na", "other", "adv", "particle", "conj", "interj"]
-    def _ord(k): return order.index(k) if k in order else 999
+    # ✅ 품사 그룹별 expander + 카드 렌더
+    order = ["noun", "verb", "adj_i", "adj_na", "other", "unknown"]
+    for g in order:
+        if g not in grouped:
+            continue
 
-    for gk in sorted(grouped.keys(), key=_ord):
-        items = grouped[gk]
-        title = POS_LABEL_MAP.get(gk, OTHER_POS_LABEL_MAP.get(gk, gk))
+        title = POS_LABEL_MAP.get(g, g)
+        items = grouped[g]
 
-        with st.expander(f"📌 {title} 오답 ({len(items)}개)", expanded=True):
-            for it in items:
-                no = _esc(it.get("No", ""))
-                prob = _esc(it.get("문제", ""))
-                mya = _esc(it.get("내 답", ""))
-                cor = _esc(it.get("정답", ""))
-                word = _esc(it.get("단어", ""))
-                rd = _esc(it.get("읽기", ""))
-                mn = _esc(it.get("뜻", ""))
-                qtp = _esc(quiz_label_map.get(str(it.get("유형","")), str(it.get("유형",""))))
+        with st.expander(f"📌 {title} 오답 ({len(items)}개)", expanded=(g == st.session_state.get("pos_group", "noun"))):
+            for w in items:
+                no = _esc(w.get("No"))
+                qtxt = _esc(w.get("문제"))
+                mine = _esc(w.get("내 답"))
+                ans = _esc(w.get("정답"))
+                word = _esc(w.get("단어"))
+                yomi = _esc(w.get("읽기"))
+                meaning = _esc(w.get("뜻"))
+                qtype = _esc(quiz_label_map.get(str(w.get("유형", "")), str(w.get("유형", ""))))
 
                 st.markdown(
                     f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
-      <div class="wrong-left">
-        <div class="wrong-title">#{no} {word}</div>
-        <div class="wrong-sub">{prob}</div>
-      </div>
-      <div class="tag">{qtp}</div>
+      <div class="wrong-no">No.{no}</div>
+      <div style="text-align:right; font-size:12px; opacity:.75; font-weight:800;">유형: {qtype}</div>
     </div>
 
-    <div class="ans-row">
-      <div class="ans-k">내 답</div><div class="ans-v">{mya}</div>
-      <div class="ans-k">정답</div><div class="ans-v"><b>{cor}</b></div>
-      <div class="ans-k">읽기</div><div class="ans-v">{rd}</div>
-      <div class="ans-k">뜻</div><div class="ans-v">{mn}</div>
+    <div class="wrong-q">{qtxt}</div>
+
+    <div class="wrong-row">
+      <div class="wrong-k">내 답</div>
+      <div class="wrong-v"><span class="bad">{mine}</span></div>
     </div>
 
-    <div class="smallhint">👉 이 단어는 마이페이지에서 ‘틀린 문제만 다시 풀기’로 바로 복습할 수 있어요.</div>
+    <div class="wrong-row">
+      <div class="wrong-k">정답</div>
+      <div class="wrong-v"><span class="good">{ans}</span></div>
+    </div>
+
+    <div class="wrong-row">
+      <div class="wrong-k">단어</div>
+      <div class="wrong-v"><b>{word}</b>　({yomi})</div>
+    </div>
+
+    <div class="wrong-row">
+      <div class="wrong-k">뜻</div>
+      <div class="wrong-v">{meaning}</div>
+    </div>
   </div>
 </div>
 """,
