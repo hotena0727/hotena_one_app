@@ -2609,13 +2609,8 @@ circled_nums = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑�
 for idx, q in enumerate(st.session_state.quiz):
     badge = circled_nums[idx] if idx < len(circled_nums) else f"({idx+1})"
 
-    # ✅ 한 줄: [왼쪽=문제] [오른쪽=버튼]
-    left, right = st.columns([8.5, 1.5], vertical_alignment="center")
-
-    with left:
-        st.markdown(
-            f"""
-   
+    st.markdown(
+        f"""
 <div class="jp" style="display:flex; align-items:baseline; gap:5px; margin: 10px 0 8px 0;">
   <div style="
     flex:0 0 auto;
@@ -2634,22 +2629,23 @@ for idx, q in enumerate(st.session_state.quiz):
   ">{q["prompt"]}</div>
 </div>
 """,
-            unsafe_allow_html=True
-        )
+    unsafe_allow_html=True
+)
 
-    with right:
-        # ✅ 뜻(meaning)일 때만 발음 버튼을 '오른쪽'에 붙이기
-        if st.session_state.get("quiz_type") == "meaning":
-            tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
-            render_pronounce_button(
-                tts_text,
-                uid=f"{st.session_state.quiz_version}_{idx}",
-                label="🔊",
-            )
-        else:
-            st.write("")  # 줄 맞춤(선택)
+    # ✅ 뜻(meaning) 문제에서 발음 버튼 표시
+    render_tts_bootstrap()  # TTS 전역 주입(1회)
 
-    # --- 보기 라디오 (기존 그대로) ---
+    if st.session_state.get("quiz_type") == "meaning":
+        # 문제 텍스트는 jp_word가 한자 포함이라 "reading"을 읽게 하는 게 더 자연스럽습니다.
+        # (예: 勉強 -> べんきょう)
+        tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
+
+        # 원하면 "소리 ON일 때만" 보이게 할 수도 있어요.
+        # if st.session_state.get("sound_enabled", False):
+        render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
+
+
+    
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
 
     prev = st.session_state.answers[idx]
@@ -2666,6 +2662,9 @@ for idx, q in enumerate(st.session_state.quiz):
         on_change=mark_progress_dirty,
     )
     st.session_state.answers[idx] = choice
+
+sync_answers_from_widgets()
+
 
 # ============================================================
 # ✅ 제출/채점
