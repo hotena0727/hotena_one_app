@@ -1012,63 +1012,114 @@ def sfx(event: str):
 # ============================================================
 # ✅ TTS (브라우저 Web Speech API) - 일본어 발음 버튼용
 # ============================================================
-def render_tts_bootstrap():
-    """페이지에 TTS 함수(전역)를 1번만 주입"""
-    if st.session_state.get("_tts_bootstrapped"):
-        return
-    st.session_state["_tts_bootstrapped"] = True
+def tts_button(label: str, text: str, key: str = "tts_btn", lang: str = "ja-JP"):
+    safe_text = html.escape(text, quote=True)
 
     components.html(
-        """
-<script>
-(function(){
-  const w = window.parent || window;
+        f"""
+        <div>
+          <button id="{key}" style="
+            width:100%;
+            padding:0.6rem 0.9rem;
+            border-radius:10px;
+            border:1px solid rgba(0,0,0,0.15);
+            background:#fff;
+            cursor:pointer;
+            font-size:1rem;
+          ">{html.escape(label)}</button>
 
-  // 이미 있으면 중복 주입 방지
-  if (w.__HATENA_TTS_READY__) return;
-  w.__HATENA_TTS_READY__ = true;
+          <script>
+            (function() {{
+              const btn = document.getElementById("{key}");
+              if (!btn) return;
 
-  w.hatenaSpeakJA = function(text){
-    try{
-      if(!text) return;
+              // ✅ voices 로딩 대기 (Whale에서 중요)
+              function waitVoices(timeoutMs=1800) {{
+                return new Promise((resolve) => {{
+                  const start = Date.now();
+                  function check() {{
+                    const v = window.speechSynthesis?.getVoices?.() || [];
+                    if (v.length > 0) return resolve(v);
+                    if (Date.now() - start > timeoutMs) return resolve(v);
+                    setTimeout(check, 80);
+                  }}
 
-      // 기존 재생 중이면 끊고 새로
-      if (w.speechSynthesis) {
-        w.speechSynthesis.cancel();
-      } else {
-        alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
-        return;
-      }
+                  // voiceschanged 이벤트도 같이 활용
+                  if (window.speechSynthesis) {{
+                    window.speechSynthesis.onvoiceschanged = () => {{
+                      const vv = window.speechSynthesis.getVoices() || [];
+                      if (vv.length > 0) resolve(vv);
+                    }};
+                  }}
+                  check();
+                }});
+              }}
 
-      const u = new SpeechSynthesisUtterance(String(text));
-      u.lang = "ja-JP";
-      u.rate = 1.0;   // 0.8~1.1 취향
-      u.pitch = 1.0;
+              function pickVoice(voices) {{
+                const wantLang = "{lang}".toLowerCase();
+                // 우선순위: ja-JP → ja → 아무거나
+                let v =
+                  voices.find(x => (x.lang || "").toLowerCase() === wantLang) ||
+                  voices.find(x => (x.lang || "").toLowerCase().startsWith("ja")) ||
+                  voices[0] ||
+                  null;
+                return v;
+              }}
 
-      // 가능하면 ja-JP 보이스 선택
-      const pickVoice = () => {
-        const vs = w.speechSynthesis.getVoices() || [];
-        const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
-        if (ja) u.voice = ja;
-        w.speechSynthesis.speak(u);
-      };
+              async function speakOnce() {{
+                const synth = window.speechSynthesis;
+                if (!synth) {{
+                  console.warn("speechSynthesis not supported");
+                  return;
+                }}
 
-      // 일부 브라우저는 voices가 비동기 로딩
-      const vsNow = w.speechSynthesis.getVoices();
-      if (vsNow && vsNow.length) {
-        pickVoice();
-      } else {
-        w.speechSynthesis.onvoiceschanged = () => pickVoice();
-        // 혹시 이벤트가 안 뜨는 환경 대비
-        setTimeout(() => pickVoice(), 250);
-      }
-    }catch(e){}
-  };
-})();
-</script>
+                // ✅ 큐 정리 (겹침 방지)
+                try {{ synth.cancel(); }} catch(e) {{}}
+
+                const voices = await waitVoices();
+                const voice = pickVoice(voices);
+
+                const u = new SpeechSynthesisUtterance("{safe_text}");
+                u.lang = "{lang}";
+                if (voice) u.voice = voice;
+
+                // 속도/톤은 필요하면 조정
+                u.rate = 1.0;
+                u.pitch = 1.0;
+
+                // ✅ Whale에서 간헐적으로 첫 speak이 씹히는 경우: 1회 리트라이
+                let spoke = false;
+                u.onstart = () => {{ spoke = true; }};
+                synth.speak(u);
+
+                setTimeout(() => {{
+                  // 시작이 안 됐으면 한 번 더(가볍게)
+                  if (!spoke) {{
+                    try {{ synth.cancel(); }} catch(e) {{}}
+                    const u2 = new SpeechSynthesisUtterance("{safe_text}");
+                    u2.lang = "{lang}";
+                    if (voice) u2.voice = voice;
+                    u2.rate = 1.0;
+                    u2.pitch = 1.0;
+                    synth.speak(u2);
+                  }}
+                }}, 350);
+              }}
+
+              // ✅ 반드시 "클릭 직후"에 실행
+              btn.addEventListener("click", () => {{
+                speakOnce();
+              }});
+            }})();
+          </script>
+        </div>
         """,
-        height=1,
+        height=80,
     )
+
+# 사용 예시
+# tts_button("🔊 발음 듣기", "ショートトラックに転倒はつきものですからね。", key="tts_q1")
+
 
 import json
 import streamlit.components.v1 as components
