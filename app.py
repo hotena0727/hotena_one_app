@@ -551,6 +551,30 @@ def is_admin() -> bool:
         st.session_state["is_admin_cached"] = False
         return False
 
+    # ✅ 여기: fetch 함수가 없으면 False로
+    if "fetch_is_admin_from_db" not in globals():
+        st.session_state["is_admin_cached"] = False
+        return False
+
+    val = fetch_is_admin_from_db(sb_authed_local, u.id)
+    st.session_state["is_admin_cached"] = val
+    return bool(val)
+    
+def is_admin() -> bool:
+    cached = st.session_state.get("is_admin_cached")
+    if cached is not None:
+        return bool(cached)
+
+    u = st.session_state.get("user")
+    if u is None:
+        st.session_state["is_admin_cached"] = False
+        return False
+
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is None:
+        st.session_state["is_admin_cached"] = False
+        return False
+
     val = fetch_is_admin_from_db(sb_authed_local, u.id)
     st.session_state["is_admin_cached"] = val
     return bool(val)
