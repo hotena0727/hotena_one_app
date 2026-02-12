@@ -2871,321 +2871,133 @@ if st.session_state.submitted:
 
 
     st.success(f"점수: {score} / {quiz_len}")
-    ratio = score / quiz_len if quiz_len else 0
 
-    if ratio == 1:
+    # ✅ 점수 비율
+    ratio = (score / quiz_len) if quiz_len > 0 else 0.0
+
+    # ✅ 제출 후 SFX 규칙: perfect / (0.7 이상) correct / (그 외) wrong
+    if score == quiz_len and quiz_len > 0:
         sfx("perfect")
     elif ratio >= 0.7:
-        sfx("wrong")
+        sfx("correct")
     else:
         sfx("wrong")
 
-    if ratio == 1:
-        st.balloons()
-        st.success("🎉 완벽해요! 전부 정답입니다.")
-    elif ratio >= 0.7:
-        st.info("👍 잘하고 있어요! 조금만 더 다듬으면 완벽해질 거예요.")
-    else:
-        st.warning("💪 괜찮아요! 틀린 문제는 성장의 재료예요. 다시 한 번 도전해봐요.")
-
-    sb_authed_local = get_authed_sb()
-    if sb_authed_local is None:
-        if show_post_ui:
-            st.warning("DB 저장/조회용 토큰이 없습니다. 다시 로그인해 주세요.")
-    else:
-        if not st.session_state.saved_this_attempt:
-            try:
-                run_db(lambda: save_attempt_to_db(
-                    sb_authed=sb_authed_local,
-                    user_id=user_id,
-                    user_email=user_email,
-                    pos=current_pos_group,   # ✅ 그룹 저장
-                    quiz_type=current_type,
-                    quiz_len=quiz_len,
-                    score=score,
-                    wrong_list=wrong_list,
-                ))
-                st.session_state.saved_this_attempt = True
-            except Exception as e:
-                if show_post_ui:
-                    st.warning("DB 저장에 실패했습니다. (테이블/컬럼/권한/RLS 정책 확인 필요)")
-                    st.write(str(e))
-
-        if not st.session_state.stats_saved_this_attempt:
-            try:
-                sync_answers_from_widgets()
-                items = build_word_results_bulk_payload(
-                    quiz=st.session_state.quiz,
-                    answers=st.session_state.answers,
-                    quiz_type=current_type,
-                    pos=current_pos_group,  # ✅ 그룹 기준
-                )
-                if items:
-                    run_db(lambda: sb_authed_local.rpc("record_word_results_bulk", {"p_items": items}).execute())
-                st.session_state.stats_saved_this_attempt = True
-            except Exception as e:
-                if show_post_ui:
-                    st.warning("단어 결과 통계 저장(rpc)에 실패했습니다. RPC 함수/권한/RLS 확인 필요")
-                    st.write(str(e))
-
+    # ============================================================
+    # ✅ DB 저장 (1회만)
+    # ============================================================
+    if (not st.session_state.get("saved_this_attempt")) and (sb_authed is not None):
         try:
-            save_progress_to_db(sb_authed_local, user_id)
-        except Exception:
-            pass
+            run_db(lambda: save_attempt_to_db(
+                sb_authed,
+                user_id,
+                user_email,
+                current_pos_group,   # level 컬럼에 pos_group 저장
+                current_type,        # pos_mode 컬럼에 quiz_type 저장
+                quiz_len,
+                score,
+                wrong_list
+            ))
+            st.session_state.saved_this_attempt = True
+        except Exception as e:
+            if is_admin():
+                st.warning("DB 저장 실패(관리자만 표시)")
+                st.write(str(e))
 
-# ✅ Pro 전용: 오답만 다시 풀기
-ensure_plan_cached()
-flags = st.session_state.get("flags", {})
+    # ============================================================
+    # ✅ 진행중 상태 저장(복원용) - 제출 후에도 저장
+    # ============================================================
+    try:
+        mark_progress_dirty()
+    except Exception:
+        pass
 
-if flags.get("allow_retry_wrongs", False):
-    if st.button("❌ 오답만 다시 풀기", use_container_width=True, key="btn_retry_wrongs_after_submit"):
-        clear_question_widget_keys()
-        quiz2 = build_quiz_from_wrongs(
-            wrong_list=st.session_state.get("wrong_list", []),
-            qtype=st.session_state.get("quiz_type", "meaning"),
-            pos_group=st.session_state.get("pos_group", "noun"),
-        )
-        start_quiz_state(quiz2, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
-        mark_quiz_as_seen(quiz2, st.session_state.get("quiz_type", "meaning"), st.session_state.get("pos_group","noun"))
-        st.session_state.submitted = False
-        st.session_state["_scroll_top_once"] = True
-        st.rerun()
-else:
-    st.button("❌ 오답만 다시 풀기 (PRO)", disabled=True, use_container_width=True, key="btn_retry_wrongs_disabled")
-    st.info("PRO에서 ‘오답만 다시 풀기’ 기능이 열립니다.")
+    # ============================================================
+    # ✅ 오답 카드형 (expander)
+    # ============================================================
+    if wrong_list:
+        st.markdown("### ❌ 오답 노트")
 
-# ============================================================
-# ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
-# - st.markdown() 대신 components.html()로 렌더 (마크다운 파서 우회)
-# ============================================================
-
-
-# (필수) build_quiz_from_wrongs 버그 1줄 수정도 같이 반영하세요.
-# 아래 함수 안의 잘못된 base_pos 참조를 retry_df로 바꿉니다.
-def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    wrong_words = []
-    for w in (wrong_list or []):
-        key = str(w.get("단어", "")).strip()
-        if key:
-            wrong_words.append(key)
-    wrong_words = list(dict.fromkeys(wrong_words))
-
-    if not wrong_words:
-        st.warning("현재 오답 노트가 비어 있어요. 🙂")
-        return []
-
-    pos_filters = get_pos_filters()
-    retry_df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].isin(wrong_words))
-    ].copy()
-
-    if len(retry_df) == 0:
-        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
-        st.stop()
-
-    retry_df = retry_df.sample(frac=1).reset_index(drop=True)
-
-    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외 (버그 수정)
-    if qtype == "reading":
-        retry_df = retry_df[retry_df["jp_word"].apply(_has_kanji)].copy()
-
-    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
-
-def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) -> list[dict]:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    keys = [str(x).strip() for x in (word_keys or []) if str(x).strip()]
-    keys = list(dict.fromkeys(keys))
-    if not keys:
-        st.warning("TOP10 단어가 비어 있어요.")
-        return []
-
-    pos_filters = get_pos_filters()
-    df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].astype(str).str.strip().isin(keys))
-    ].copy()
-
-    if qtype == "reading":
-        df = df[df["jp_word"].apply(_has_kanji)].copy()
-
-    if df.empty:
-        st.warning("TOP10 단어를 현재 풀(품사/기타 선택)에서 찾지 못했어요. (필터 조건 확인)")
-        return []
-
-    df = df.sample(frac=1).reset_index(drop=True)
-    df = df.head(n)  # ✅ 최대 n문항만
-    return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
-
-
-# ============================================================
-# ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
-#   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
-# ============================================================
-
-if st.session_state.wrong_list:
-    st.subheader("❌ 오답 노트")
-
-    def _s(v):
-        return "" if v is None else str(v)
-
-    cards = []
-    for w in st.session_state.wrong_list:
-        no = _s(w.get("No"))
-        qtext = _s(w.get("문제"))
-        picked = _s(w.get("내 답"))
-        correct = _s(w.get("정답"))
-        word = _s(w.get("단어"))
-        reading = _s(w.get("읽기"))
-        meaning = _s(w.get("뜻"))
-        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
-        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
-
-        # ✅ HTML 안전처리(태그 깨짐/주입 방지)
-        def _esc(x: str) -> str:
-            x = _s(x)
-            return (x.replace("&", "&amp;")
-                     .replace("<", "&lt;")
-                     .replace(">", "&gt;")
-                     .replace('"', "&quot;")
-                     .replace("'", "&#39;"))
-
-        card_html = f"""
-<div class="jp">
-  <div class="wrong-card">
-    <div class="wrong-top">
-      <div class="wrong-left">
-        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
-        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
-      </div>
-      <div class="tag">오답</div>
-    </div>
-
-    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
-    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
-    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
-    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
-  </div>
-</div>
-"""
-        cards.append(card_html)
-
-    all_cards_html = "".join(cards)
-
-    # 카드 높이(대략) 계산: 카드 1개당 190~220px 정도면 안정적
-    height = 190 * len(cards) + 10   # ✅ 여백 최소화
-    height = max(190, min(height, 1200))
-
-
-        # ✅ 공통 스타일 (preview / more 에서 둘 다 써야 하므로 문자열로 분리)
-    STYLE = """
+        st.markdown(
+            """
 <style>
 .wrong-card{
-  border: 1px solid rgba(120,120,120,0.25);
-  border-radius: 16px;
-  padding: 14px 14px;
-  margin-bottom: 10px;
+  border:1px solid rgba(120,120,120,0.22);
+  border-radius:18px;
+  padding:14px 14px;
+  margin:10px 0;
   background: rgba(255,255,255,0.02);
 }
 .wrong-top{
   display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:12px;
-  margin-bottom: 8px;
-}
-.wrong-left{ min-width:0; }
-.wrong-title{
-  font-weight: 900;
-  font-size: 15px;
-  margin-bottom: 4px;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-.wrong-sub{
-  opacity: 0.8;
-  font-size: 12px;
-}
-.tag{
-  display:inline-flex;
   align-items:center;
-  gap:6px;
-  padding: 5px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  border: 1px solid rgba(120,120,120,0.25);
-  background: rgba(255,255,255,0.03);
-  white-space: nowrap;
-}
-.ans-row{
-  display:grid;
-  grid-template-columns: 72px 1fr;
+  justify-content:space-between;
   gap:10px;
-  margin-top:6px;
-  font-size: 13px;
 }
-.ans-k{ opacity: 0.7; font-weight: 700; }
+.wrong-no{
+  font-weight:900;
+  font-size:16px;
+}
+.wrong-pill{
+  border:1px solid rgba(120,120,120,0.25);
+  border-radius:999px;
+  padding:6px 10px;
+  font-size:12px;
+  font-weight:900;
+  white-space:nowrap;
+  opacity:.9;
+}
+.wrong-q{ margin-top:10px; font-weight:800; font-size:14px; line-height:1.45; }
+.wrong-row{ margin-top:8px; font-size:13px; line-height:1.55; opacity:.92; }
+.wrong-row b{ font-weight:900; }
 </style>
-"""
-
-    def _render_cards(card_list: list[str], max_height: int = 650):
-        """카드 리스트를 components.html로 렌더"""
-        if not card_list:
-            return
-        html = "".join(card_list)
-
-        # 카드 1장당 높이(대략)
-        h = 190 * len(card_list) + 10
-        h = max(190, min(h, max_height))
-
-        components.html(
-            textwrap.dedent(f"""
-{STYLE}
-{html}
-"""),
-            height=h,
+""",
+            unsafe_allow_html=True,
         )
 
-    # ✅ 3개만 먼저 보여주기
-    MAX_PREVIEW = 3
-    preview_cards = cards[:MAX_PREVIEW]
-    rest_cards = cards[MAX_PREVIEW:]
+        # Free면 앞에서 10개로 잘려있음(이미 적용)
+        for w in st.session_state.get("wrong_list", []):
+            no = w.get("No", "")
+            qtxt = _esc_html(w.get("문제", ""))
+            mya = _esc_html(w.get("내 답", ""))
+            ans = _esc_html(w.get("정답", ""))
+            word = _esc_html(w.get("단어", ""))
+            rd = _esc_html(w.get("읽기", ""))
+            mn = _esc_html(w.get("뜻", ""))
 
-    _render_cards(preview_cards, max_height=650)
+            st.markdown(
+                f"""
+<div class="jp">
+  <div class="wrong-card">
+    <div class="wrong-top">
+      <div class="wrong-no">Q{no}</div>
+      <div class="wrong-pill">오답</div>
+    </div>
 
-    # ✅ 3개 초과면 "더 보기"로 나머지 펼치기
-    if rest_cards:
-        with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
-            _render_cards(rest_cards, max_height=900)
+    <div class="wrong-q">{qtxt}</div>
 
-# ============================================================
-# ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
-# ============================================================
-if st.session_state.get("submitted", False):
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+    <div class="wrong-row"><b>내 답</b> : {mya}</div>
+    <div class="wrong-row"><b>정답</b> : {ans}</div>
 
-    cA, cB = st.columns(2)
-    with cA:
-        if st.button("✅ 다음 10문항 시작하기", type="primary", use_container_width=True, key="btn_next_10"):
+    <div class="wrong-row"><b>단어</b> : {word}</div>
+    <div class="wrong-row"><b>읽기</b> : {rd}</div>
+    <div class="wrong-row"><b>뜻</b> : {mn}</div>
+  </div>
+</div>
+""",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.info("완벽합니다. 오답이 없어요 ✅")
+
+    # ============================================================
+    # ✅ 액션 버튼: 새 문제 / (PRO 전용) 오답만 다시 풀기
+    # ============================================================
+    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+
+    b1, b2 = st.columns(2)
+    with b1:
+        if st.button("🔄 새 문제(같은 설정)", use_container_width=True, key="btn_after_newquiz"):
             clear_question_widget_keys()
             new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
             start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
@@ -3193,20 +3005,31 @@ if st.session_state.get("submitted", False):
             st.session_state["_scroll_top_once"] = True
             st.rerun()
 
-    with cB:
-        # 오답이 있을 때만 활성화(없으면 disabled)
-        has_wrongs = bool(st.session_state.get("wrong_list"))
-        if st.button("❌ 틀린 문제만 다시 풀기", use_container_width=True, disabled=not has_wrongs, key="btn_retry_wrongs_bottom_global"):
-            clear_question_widget_keys()
-            retry_quiz = build_quiz_from_wrongs(
-                st.session_state.wrong_list,
-                st.session_state.quiz_type,
-                st.session_state.pos_group
-            )
-            start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
-            st.session_state["_scroll_top_once"] = True
-            st.rerun()
+    with b2:
+        ensure_plan_cached()
+        flags = st.session_state.get("flags", {})
+        if flags.get("allow_retry_wrongs", False):
+            if st.button("❌ 오답만 다시 풀기", type="primary", use_container_width=True, key="btn_after_retry_wrongs"):
+                clear_question_widget_keys()
+                quiz = build_quiz_from_wrongs(
+                    wrong_list=wrong_list,
+                    qtype=st.session_state.quiz_type,
+                    pos_group=st.session_state.pos_group,
+                )
+                start_quiz_state(quiz, st.session_state.quiz_type, clear_wrongs=True)
+                st.session_state["_scroll_top_once"] = True
+                st.rerun()
+        else:
+            st.caption("오답만 다시 풀기는 PRO에서 제공됩니다.")
 
-    show_naver_talk = (SHOW_NAVER_TALK == "N") or is_admin()
-    if show_naver_talk:
+    # ============================================================
+    # ✅ 네이버톡(옵션): 제출 후만
+    # ============================================================
+    if SHOW_NAVER_TALK == "Y":
         render_naver_talk()
+
+    # ============================================================
+    # ✅ 제출 후에는 여기서 멈춤(이하 UI 중복 방지)
+    # ============================================================
+    st.stop()
+
