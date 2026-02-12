@@ -2937,177 +2937,161 @@ if st.session_state.submitted:
         except Exception:
             pass
 # ============================================================
-# ✅ 제출 후: 오답 노트 (카드형 + 품사그룹별 expander + 예문 + PRO 발음)
+# ✅ 제출 후: 오답 노트 (카드형 + pos_group별 expander)
+#   - HTML이 그대로 보이는 문제 해결(unsafe_allow_html=True)
+#   - 값은 html.escape로 안전 처리
 # ============================================================
 if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
     st.subheader("❌ 오답 노트")
 
-    def _s(v):
-        return "" if v is None else str(v)
-
-    def _esc(x: str) -> str:
-        x = _s(x)
-        return (x.replace("&", "&amp;")
-                 .replace("<", "&lt;")
-                 .replace(">", "&gt;")
-                 .replace('"', "&quot;")
-                 .replace("'", "&#39;"))
-
-    st.markdown("""
+    st.markdown(
+        """
 <style>
 .wrong-card{
-  border: 1px solid rgba(120,120,120,0.25);
-  border-radius: 16px;
-  padding: 16px;
-  margin: 14px 0;
+  border:1px solid rgba(120,120,120,0.22);
+  border-radius:18px;
+  padding:14px 14px;
+  margin:10px 0;
   background: rgba(255,255,255,0.02);
 }
-.wrong-title{
-  font-weight:900;
-  font-size:15px;
-  margin-bottom:6px;
-}
-.wrong-meta{
-  font-size:12px;
-  opacity:.72;
+.wrong-top{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:baseline;
   margin-bottom:10px;
-  line-height:1.35;
 }
+.wrong-no{ font-weight:900; font-size:16px; }
+.wrong-meta{ font-size:12px; opacity:.72; white-space:nowrap; }
+.wrong-q{ font-size:14px; line-height:1.55; margin: 6px 0 10px 0; opacity:.92; }
 .wrong-row{
   display:flex;
-  gap:10px;
-  align-items:flex-start;
-  margin-top:8px;
+  justify-content:space-between;
+  gap:12px;
+  padding:8px 10px;
+  border-radius:12px;
+  border:1px solid rgba(120,120,120,0.16);
+  background: rgba(255,255,255,0.02);
+  margin:6px 0;
 }
-.wrong-k{
-  flex:0 0 auto;
-  font-weight:900;
-  opacity:.78;
+.wrong-k{ font-weight:900; font-size:13px; opacity:.8; }
+.wrong-v{ font-weight:900; font-size:14px; }
+.wrong-v b{ font-weight:900; }
+.wrong-mini{
+  display:grid;
+  grid-template-columns: 1fr;
+  gap:6px;
+  margin-top:10px;
   font-size:13px;
-  min-width:64px;
+  opacity:.85;
 }
-.wrong-v{
-  flex:1 1 auto;
+.wrong-mini .chip{
+  border:1px solid rgba(120,120,120,0.16);
+  border-radius:12px;
+  padding:8px 10px;
+  background: rgba(255,255,255,0.02);
+}
+.wrong-ex{
+  margin-top:10px;
+  padding:10px 10px;
+  border-radius:14px;
+  border:1px solid rgba(120,120,120,0.16);
+  background: rgba(255,255,255,0.02);
   font-size:13px;
-  line-height:1.55;
+  line-height:1.6;
 }
-.wrong-chip{
-  display:inline-block;
-  border:1px solid rgba(120,120,120,0.22);
-  background: rgba(255,255,255,0.03);
-  border-radius:999px;
-  padding:6px 10px;
-  font-size:12px;
-  font-weight:900;
-  margin-right:6px;
-  margin-top:6px;
-  white-space:nowrap;
-}
+.wrong-ex .jp{ font-weight:900; }
+.wrong-ex .kr{ opacity:.82; margin-top:4px; }
 </style>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
-    # ✅ 품사그룹별로 묶기
-    grouped: dict[str, list[dict]] = {}
-    for w in st.session_state.get("wrong_list", []):
-        g = str(w.get("품사", "") or "unknown").strip().lower()
-        grouped.setdefault(g, []).append(w)
+    def _h(x) -> str:
+        # ✅ HTML 안전 처리(사용자 입력/DB 데이터가 섞여도 안전)
+        return html.escape("" if x is None else str(x))
 
-    # 보기 순서: noun/adj_i/adj_na/verb/other/unknown
-    group_order = ["noun", "adj_i", "adj_na", "verb", "other", "unknown"]
-    ordered_keys = [k for k in group_order if k in grouped] + [k for k in grouped.keys() if k not in group_order]
+    def render_wrong_card(w: dict):
+        no = _h(w.get("No", ""))
+        qtxt = _h(w.get("문제", ""))
+        mya = _h(w.get("내 답", ""))
+        ans = _h(w.get("정답", ""))
+        word = _h(w.get("단어", ""))
+        yomi = _h(w.get("읽기", ""))
+        mean = _h(w.get("뜻", ""))
+        posg = _h(w.get("품사", ""))
+        qtype = _h(w.get("유형", ""))
 
-    for g in ordered_keys:
-        items = grouped.get(g, [])
-        title = POS_LABEL_MAP.get(g, g)
+        ex_jp = _h(w.get("예문JP", ""))  # (없으면 빈칸)
+        ex_kr = _h(w.get("예문KR", ""))
 
-        with st.expander(f"📚 {title} 오답 ({len(items)}개)", expanded=True):
-            for w in items:
-                no = int(w.get("No", 0) or 0)
-                prob = _esc(w.get("문제", ""))
-                mya = _esc(w.get("내 답", ""))
-                ans = _esc(w.get("정답", ""))
-                word = _esc(w.get("단어", ""))
-                yomi = _esc(w.get("읽기", ""))
-                mean = _esc(w.get("뜻", ""))
-                qtype = str(w.get("유형", "")).strip()
+        # ✅ 저장된 wrong_list에는 예문 키가 없으니, 현재 quiz에서 찾아 붙이기(가능하면)
+        #    (원하면 아래 로직 지워도 됨)
+        if (not ex_jp) and (not ex_kr):
+            for qq in (st.session_state.get("quiz") or []):
+                if str(qq.get("jp_word", "")).strip() == html.unescape(word):
+                    ex_jp = _h(qq.get("example_jp", ""))
+                    ex_kr = _h(qq.get("example_kr", ""))
+                    break
 
-                # ✅ 예문은 quiz 데이터에서 가져오면 가장 좋지만,
-                #   wrong_list에 example을 안 넣었으니 현재는 표시 생략(원하면 wrong_list에 같이 저장 가능)
-                #   여기서는 단어/읽기/뜻 중심으로 카드 제공
-
-                chips = []
-                chips.append(f"<span class='wrong-chip'>No.{no}</span>")
-                chips.append(f"<span class='wrong-chip'>{_esc(quiz_label_map.get(qtype, qtype))}</span>")
-                chips_html = "".join(chips)
-
-                st.markdown(
-                    f"""
+        card_html = f"""
 <div class="jp">
   <div class="wrong-card">
-    <div class="wrong-title">{chips_html}</div>
-    <div class="wrong-meta">{prob}</div>
+    <div class="wrong-top">
+      <div class="wrong-no">No.{no}</div>
+      <div class="wrong-meta">{posg} · {qtype}</div>
+    </div>
+
+    <div class="wrong-q">{qtxt}</div>
 
     <div class="wrong-row">
       <div class="wrong-k">내 답</div>
-      <div class="wrong-v">{mya}</div>
+      <div class="wrong-v">{mya if mya else "-"}</div>
     </div>
+
     <div class="wrong-row">
       <div class="wrong-k">정답</div>
       <div class="wrong-v"><b>{ans}</b></div>
     </div>
 
-    <div class="wrong-row">
-      <div class="wrong-k">단어</div>
-      <div class="wrong-v"><b>{word}</b></div>
+    <div class="wrong-mini">
+      <div class="chip">단어: <b>{word}</b></div>
+      <div class="chip">읽기: <b>{yomi}</b></div>
+      <div class="chip">뜻: <b>{mean}</b></div>
     </div>
-
-    <div class="wrong-row">
-      <div class="wrong-k">읽기</div>
-      <div class="wrong-v">{yomi}</div>
+"""
+        if ex_jp or ex_kr:
+            card_html += f"""
+    <div class="wrong-ex">
+      <div class="jp">{ex_jp}</div>
+      <div class="kr">{ex_kr}</div>
     </div>
-
-    <div class="wrong-row">
-      <div class="wrong-k">뜻</div>
-      <div class="wrong-v">{mean}</div>
-    </div>
+"""
+        card_html += """
   </div>
 </div>
-""",
-                    unsafe_allow_html=True,
-                )
+"""
+        # ✅ 핵심: unsafe_allow_html=True
+        st.markdown(card_html, unsafe_allow_html=True)
 
-                # ✅ PRO: 오답 카드에서 바로 발음 듣기 버튼 제공
-                if is_pro():
-                    # 의미퀴즈/오답복습에서도 “읽기”를 들려주는 게 학습 효율 좋음
-                    tts = (yomi or word).strip()
-                    if tts:
-                        render_pronounce_button(tts, uid=f"wrong_{st.session_state.get('quiz_version',0)}_{no}", label="🔊 발음")
+        # ✅ (선택) 발음 버튼: PRO일 때만
+        if is_pro():
+            # meaning/reading 어디서든 "reading"을 읽어주는 게 자연스러움
+            tts_text = html.unescape(yomi) or html.unescape(word)
+            render_pronounce_button(tts_text, uid=f"wrong_{no}", label="🔊 발음")
 
-            # ✅ 오답만 다시 풀기 버튼(품사그룹별 expander 안에 1개)
-            st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+    # ✅ pos_group별로 묶어서 expander
+    wrongs = st.session_state.get("wrong_list") or []
+    grouped: dict[str, list[dict]] = {}
+    for w in wrongs:
+        g = str(w.get("품사", "etc") or "etc").strip()
+        grouped.setdefault(g, []).append(w)
 
-            if is_pro():
-                if st.button(
-                    f"❌ {title} 오답만 다시 풀기 (최대 {N}개)",
-                    type="primary",
-                    use_container_width=True,
-                    key=f"btn_retry_wrong_{g}",
-                ):
-                    clear_question_widget_keys()
-
-                    # 현재 선택된 유형이 other에서 reading이면 meaning으로 강제됨(함수 내부 안전장치 있음)
-                    retry_quiz = build_quiz_from_wrongs(
-                        wrong_list=items,
-                        qtype=st.session_state.get("quiz_type", "meaning"),
-                        pos_group=st.session_state.get("pos_group", "noun"),
-                    )
-
-                    start_quiz_state(retry_quiz, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
-                    mark_quiz_as_seen(retry_quiz, st.session_state.get("quiz_type", "meaning"), st.session_state.get("pos_group", "noun"))
-                    st.session_state["_scroll_top_once"] = True
-                    st.rerun()
-            else:
-                st.caption("🔒 오답만 다시풀기는 PRO에서 제공됩니다.")
+    for g, items in grouped.items():
+        label = POS_LABEL_MAP.get(g, g)
+        with st.expander(f"📌 {label} 오답 ({len(items)}개)", expanded=True):
+            for w in items:
+                render_wrong_card(w)
 
 # ============================================================
 # ✅ 제출 후: 네이버톡 (옵션)
