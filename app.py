@@ -1013,7 +1013,7 @@ def sfx(event: str):
 # ✅ TTS (브라우저 Web Speech API) - 일본어 발음 버튼용
 # ============================================================
 def render_tts_bootstrap():
-    """페이지에 TTS 함수(전역)를 1번만 주입"""
+    """부모(메인) 문서에서 TTS 실행 + iframe 버튼은 postMessage로 호출"""
     if st.session_state.get("_tts_bootstrapped"):
         return
     st.session_state["_tts_bootstrapped"] = True
@@ -1023,69 +1023,73 @@ def render_tts_bootstrap():
 <script>
 (function(){
   const w = window.parent || window;
+  if (w.__HATENA_TTS_BRIDGE__) return;
+  w.__HATENA_TTS_BRIDGE__ = true;
 
-  // 이미 있으면 중복 주입 방지
-  if (w.__HATENA_TTS_READY__) return;
-  w.__HATENA_TTS_READY__ = true;
-
-  w.hatenaSpeakJA = function(text){
+  function speakJA(text){
     try{
       if(!text) return;
 
-      // 기존 재생 중이면 끊고 새로
-      if (w.speechSynthesis) {
-        w.speechSynthesis.cancel();
-      } else {
-        alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
+      if (!w.speechSynthesis) {
+        console.log("[TTS] speechSynthesis not available");
         return;
       }
 
+      // 웨일/크롬 모두: 연타 시 끊고 다시
+      w.speechSynthesis.cancel();
+
       const u = new SpeechSynthesisUtterance(String(text));
       u.lang = "ja-JP";
-      u.rate = 1.0;   // 0.8~1.1 취향
+      u.rate = 1.0;
       u.pitch = 1.0;
+      u.volume = 1.0;
 
-      // 가능하면 ja-JP 보이스 선택
-      const pickVoice = () => {
-        if (spoken) return;          // ✅ 핵심: 1회만
-        spoken = true;
-        
+      const tryPickAndSpeak = () => {
         const vs = w.speechSynthesis.getVoices() || [];
         const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
         if (ja) u.voice = ja;
         w.speechSynthesis.speak(u);
       };
 
-      // 일부 브라우저는 voices가 비동기 로딩
+      // voices 비동기 로딩 대응(웨일에서 특히 중요)
       const vsNow = w.speechSynthesis.getVoices();
       if (vsNow && vsNow.length) {
-        pickVoice();
+        tryPickAndSpeak();
       } else {
-        w.speechSynthesis.onvoiceschanged = () => pickVoice();
-        // 혹시 이벤트가 안 뜨는 환경 대비
-        setTimeout(() => pickVoice(), 250);
+        w.speechSynthesis.onvoiceschanged = () => tryPickAndSpeak();
+        setTimeout(tryPickAndSpeak, 250);
+        setTimeout(tryPickAndSpeak, 900);
       }
-    }catch(e){}
-  };
+    } catch(e){
+      console.log("[TTS] speak error", e);
+    }
+  }
+
+  // iframe -> 부모로 postMessage 오면 여기서 말한다
+  w.addEventListener("message", (ev) => {
+    try{
+      const data = ev.data || {};
+      if (data && data.type === "HATENA_TTS" && typeof data.text === "string") {
+        speakJA(data.text);
+      }
+    } catch(e){}
+  }, false);
 })();
 </script>
         """,
         height=1,
     )
 
+
 import json
 import streamlit.components.v1 as components
 
 def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
-    """
-    ✅ Streamlit components iframe 안에서 speechSynthesis를 직접 실행
-    → parent 호출/브릿지 방식 제거(가장 안정적)
-    """
     t = (text or "").strip()
     if not t:
         return
 
-    js_text = json.dumps(t)  # JS 안전 전달(따옴표/특수문자 깨짐 방지)
+    js_text = json.dumps(t)
 
     components.html(
         f"""
@@ -1106,51 +1110,28 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
 
 <script>
 (function(){{
-  const text = {js_text};
   const btn = document.getElementById("btn_{uid}");
   if(!btn) return;
 
-  function speakJA(){{
+  const text = {js_text};
+
+  btn.addEventListener("click", () => {{
     try {{
-      const w = window; // ✅ iframe 내부에서 직접 실행
-      if (!w.speechSynthesis) {{
-        alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
-        return;
-      }}
-      w.speechSynthesis.cancel();
-
-      const u = new SpeechSynthesisUtterance(String(text));
-      u.lang = "ja-JP";
-      u.rate = 1.0;
-      u.pitch = 1.0;
-
-      const pickAndSpeak = () => {{
-        const vs = w.speechSynthesis.getVoices() || [];
-        const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
-        if (ja) u.voice = ja;
-        w.speechSynthesis.speak(u);
-      }};
-
-      const vsNow = w.speechSynthesis.getVoices();
-      if (vsNow && vsNow.length) {{
-        pickAndSpeak();
-      }} else {{
-        // voices 비동기 로딩 대응
-        w.speechSynthesis.onvoiceschanged = () => pickAndSpeak();
-        setTimeout(() => pickAndSpeak(), 250);
-        setTimeout(() => pickAndSpeak(), 900);
-      }}
+      // ✅ iframe 내부에서는 말하지 말고, 부모에게 "말해줘"라고만 요청
+      window.parent.postMessage({{
+        type: "HATENA_TTS",
+        text: String(text)
+      }}, "*");
     }} catch(e) {{
       console.log(e);
     }}
-  }}
-
-  btn.addEventListener("click", speakJA);
+  }});
 }})();
 </script>
         """,
         height=55,
     )
+
 
 # ============================================================
 # ✅ Login UI
