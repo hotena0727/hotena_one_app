@@ -641,8 +641,11 @@ def start_quiz_state(quiz_list: list, qtype: str, clear_wrongs: bool = True):
     st.session_state.stats_saved_this_attempt = False
     st.session_state.session_stats_applied_this_attempt = False
     
-    # ✅ 추가: 무료 카운트 중복/누락 방지
+    # ✅ [추가] FREE 제한 카운트 중복 누적 방지 플래그 리셋
     st.session_state.free_limit_applied_this_attempt = False
+
+    # (선택) 디버그/추적용
+    # st.session_state.free_limit_applied_ts = None
 
     if clear_wrongs:
         st.session_state.wrong_list = []
