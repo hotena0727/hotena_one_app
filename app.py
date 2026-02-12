@@ -2381,40 +2381,6 @@ if st.session_state.page == "my":
     st.stop()
 
 # ============================================================
-# ✅ FREE 제한(30문항) - PRO는 무제한
-# ============================================================
-FREE_MAX_QUESTIONS = 30  # 3세트 * 10문항
-
-def _kst_today_str() -> str:
-    # 간단하게 KST 기준 "YYYY-MM-DD" 문자열
-    return pd.Timestamp.now(tz=KST_TZ).strftime("%Y-%m-%d")
-
-def ensure_free_limit_shape():
-    if "free_limit" not in st.session_state or not isinstance(st.session_state.free_limit, dict):
-        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
-    # 날짜 바뀌면 카운트 리셋(하루 30문항 기준)
-    if st.session_state.free_limit.get("date") != _kst_today_str():
-        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
-
-def free_used_count() -> int:
-    ensure_free_limit_shape()
-    return int(st.session_state.free_limit.get("count", 0) or 0)
-
-def free_limit_reached() -> bool:
-    # ✅ PRO는 절대 제한 걸지 않음
-    if is_pro():
-        return False
-    return free_used_count() >= FREE_MAX_QUESTIONS
-
-def add_free_used(n: int):
-    # ✅ PRO는 카운트 누적 자체를 안 함(원하면 해도 되지만 보통 불필요)
-    if is_pro():
-        return
-    ensure_free_limit_shape()
-    st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
-
-
-# ============================================================
 # ✅ FREE 제한: DB 기준 "오늘 푼 문항 수" 계산
 #   - 위치: supabase + 로그인 복원 완료 후 / 상단 UI 렌더링 전에
 # ============================================================
@@ -2442,6 +2408,35 @@ def get_daily_solved_from_db(sb, user_id: str) -> int:
 
 user_id = st.session_state.get("user_id")
 daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+
+# ============================================================
+# ✅ PAYWALL: 여기서 "안내만" 띄우고 아래 렌더 전부 차단
+# ============================================================
+PRO_URL = "https://YOUR-PRO-PAGE-URL"  # 결제/안내 페이지
+
+def render_paywall(daily_solved: int):
+    st.markdown("## 🔒 오늘의 무료 학습량(30문항)을 모두 사용하셨어요")
+    st.write("무료는 하루 **30문항(3세트)** 까지 이용 가능합니다.")
+    st.write("PRO로 업그레이드하면 계속 학습할 수 있어요.")
+
+    # ✅ '긴 버튼'으로 링크 이동
+    st.link_button("🚀 PRO 업그레이드", PRO_URL, use_container_width=True)
+
+    st.caption(f"오늘 FREE 사용량: {daily_solved}/30문항 · 제한 상태에서는 어떤 유형을 눌러도 문제가 표시되지 않습니다.")
+
+    FREE_LIMIT = 30  # 하루 무료 30문항
+    
+    # 1) 오늘 푼 문항 수 계산 (DB 기준)
+    user_id = st.session_state.get("user_id")
+    daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+
+    # 2) 잠금 여부 판단 (is_pro는 "함수"로 통일)
+    is_locked = (not is_pro()) and (daily_solved >= FREE_LIMIT)
+
+    # 3) 잠겼으면 안내만 보여주고 아래 렌더링 차단
+    if is_locked:
+        render_paywall()
+        st.stop()
 
 # ============================================================
 # ✅ Quiz Page
@@ -2524,34 +2519,38 @@ ensure_excluded_wrong_words_shape()
 ensure_mastery_banner_shape()
 
 # ============================================================
-# ✅ PAYWALL: 여기서 "안내만" 띄우고 아래 렌더 전부 차단
+# ✅ FREE 제한(30문항) - PRO는 무제한
 # ============================================================
-PRO_URL = "https://YOUR-PRO-PAGE-URL"  # 결제/안내 페이지
+FREE_MAX_QUESTIONS = 30  # 3세트 * 10문항
 
-def render_paywall(daily_solved: int):
-    st.markdown("## 🔒 오늘의 무료 학습량(30문항)을 모두 사용하셨어요")
-    st.write("무료는 하루 **30문항(3세트)** 까지 이용 가능합니다.")
-    st.write("PRO로 업그레이드하면 계속 학습할 수 있어요.")
+def _kst_today_str() -> str:
+    # 간단하게 KST 기준 "YYYY-MM-DD" 문자열
+    return pd.Timestamp.now(tz=KST_TZ).strftime("%Y-%m-%d")
 
-    # ✅ '긴 버튼'으로 링크 이동
-    st.link_button("🚀 PRO 업그레이드", PRO_URL, use_container_width=True)
+def ensure_free_limit_shape():
+    if "free_limit" not in st.session_state or not isinstance(st.session_state.free_limit, dict):
+        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
+    # 날짜 바뀌면 카운트 리셋(하루 30문항 기준)
+    if st.session_state.free_limit.get("date") != _kst_today_str():
+        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
 
-    st.caption(f"오늘 FREE 사용량: {daily_solved}/30문항 · 제한 상태에서는 어떤 유형을 눌러도 문제가 표시되지 않습니다.")
+def free_used_count() -> int:
+    ensure_free_limit_shape()
+    return int(st.session_state.free_limit.get("count", 0) or 0)
 
-    FREE_LIMIT = 30  # 하루 무료 30문항
-    
-    # 1) 오늘 푼 문항 수 계산 (DB 기준)
-    user_id = st.session_state.get("user_id")
-    daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+def free_limit_reached() -> bool:
+    # ✅ PRO는 절대 제한 걸지 않음
+    if is_pro():
+        return False
+    return free_used_count() >= FREE_MAX_QUESTIONS
 
-    # 2) 잠금 여부 판단 (is_pro는 "함수"로 통일)
-    is_locked = (not is_pro()) and (daily_solved >= FREE_LIMIT)
+def add_free_used(n: int):
+    # ✅ PRO는 카운트 누적 자체를 안 함(원하면 해도 되지만 보통 불필요)
+    if is_pro():
+        return
+    ensure_free_limit_shape()
+    st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
 
-    # 3) 잠겼으면 안내만 보여주고 아래 렌더링 차단
-    if is_locked:
-        render_paywall()
-        st.stop()
-    
 # ============================================================
 # ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
 # ============================================================
