@@ -2632,6 +2632,7 @@ with cbtn1:
 
     if locked:
         st.warning("무료는 하루 30문항(3세트)까지입니다. 더 풀려면 PRO가 필요합니다.")
+        st.stop()
 
     if st.button(
         "🔄 새 문제(랜덤 10문항)",
@@ -3062,7 +3063,7 @@ if st.session_state.get("submitted", False):
             disabled=locked
         ):
             if locked:
-            st.stop()
+                st.stop()
 
             clear_question_widget_keys()
             new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
