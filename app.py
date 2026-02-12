@@ -2497,6 +2497,11 @@ def add_free_used(n: int):
 # ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
 # ============================================================
 def on_pick_pos_group(ps: str):
+    # ✅ FREE 한도 가드 (품사 변경으로 새 문제 생성되는 구멍 막기)
+    if free_limit_reached():
+        st.warning("무료는 하루 30문항(3세트)까지입니다. 오늘은 여기까지! 🙂")
+        st.session_state["_scroll_top_once"] = True
+        return
     ps = str(ps).strip().lower()
     if ps == st.session_state.pos_group:
         return
@@ -2513,6 +2518,11 @@ def on_pick_pos_group(ps: str):
     st.session_state["_scroll_top_once"] = True
 
 def on_pick_qtype(qt: str):
+    # ✅ FREE 한도 가드 (유형 변경으로 새 문제 생성되는 구멍 막기)
+    if free_limit_reached():
+        st.warning("무료는 하루 30문항(3세트)까지입니다. 오늘은 여기까지! 🙂")
+        st.session_state["_scroll_top_once"] = True
+        return
     qt = str(qt).strip()
     if qt == st.session_state.quiz_type:
         return
@@ -2559,6 +2569,9 @@ for i, ps in enumerate(POS_GROUP_OPTIONS):
 
 # ✅ B안: 기타 선택 시에만 세부 선택 expander + 적용 버튼
 if st.session_state.pos_group == "other":
+    if "other_pos_selected" not in st.session_state:
+        st.session_state.other_pos_selected = set()
+
     with st.expander("기타 세부 선택 (부사/조사/접속사/감탄사)", expanded=True):
         cols = st.columns(2)
         for j, p in enumerate(OTHER_POS_OPTIONS):
@@ -2571,6 +2584,12 @@ if st.session_state.pos_group == "other":
                     st.session_state.other_pos_selected.discard(p)
 
         if st.button("🔄 기타 선택 적용(새 문제)", use_container_width=True, key="btn_apply_other"):
+            # ✅ FREE 한도 가드
+            if free_limit_reached():
+                st.warning("무료는 하루 30문항(3세트)까지입니다. 오늘은 여기까지! 🙂")
+                st.session_state["_scroll_top_once"] = True
+                st.stop()
+
             # ✅ 기타는 reading 불가
             if st.session_state.quiz_type == "reading":
                 st.session_state.quiz_type = "meaning"
@@ -2578,9 +2597,9 @@ if st.session_state.pos_group == "other":
             clear_question_widget_keys()
             new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
             start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
             st.session_state["_scroll_top_once"] = True
             st.rerun()
-
 st.markdown('<div class="qtype_hint jp">✨유형을 선택하세요</div>', unsafe_allow_html=True)
 
 # ✅ 유형 버튼
@@ -2606,7 +2625,7 @@ with st.expander("📌 필수패턴 (카드로 빠르게 익히기)", expanded=F
     else:
         st.caption("🔒 PRO에서 품사별 패턴 카드 전체가 열립니다.")
         # 무료 체험: 1장만
-        render_pattern_cards()
+        render_pattern_cards(limit=1)
 
 st.markdown('<div class="tight-divider">', unsafe_allow_html=True)
 st.divider()
