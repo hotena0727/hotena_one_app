@@ -40,6 +40,7 @@ import time
 import traceback
 import base64
 import textwrap 
+import json
 
 # ============================================================
 # ✅ Page Config + Paths
@@ -1068,16 +1069,26 @@ def render_tts_bootstrap():
         height=1,
     )
 
-def render_pronounce_button(text: str, uid: str, label: str = "🔊"):
-    """문제 옆에 붙일 발음 버튼(클릭하면 TTS)"""
-    safe = _esc_html(text)
-    # uid는 질문 index 같은 걸로 유니크하게
+import json
+import streamlit.components.v1 as components
+
+def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
+    """
+    ✅ Streamlit components iframe 안에서 speechSynthesis를 직접 실행
+    → parent 호출/브릿지 방식 제거(가장 안정적)
+    """
+    t = (text or "").strip()
+    if not t:
+        return
+
+    js_text = json.dumps(t)  # JS 안전 전달(따옴표/특수문자 깨짐 방지)
+
     components.html(
         f"""
 <div style="display:inline-block; margin-left:8px;">
   <button
+    id="btn_{uid}"
     type="button"
-    onclick="(window.parent||window).hatenaSpeakJA('{safe}')"
     style="
       border:1px solid rgba(120,120,120,0.25);
       background: rgba(255,255,255,0.04);
@@ -1086,11 +1097,55 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊"):
       font-weight: 900;
       cursor: pointer;
     "
-    aria-label="pronounce-{uid}"
   >{label}</button>
 </div>
+
+<script>
+(function(){{
+  const text = {js_text};
+  const btn = document.getElementById("btn_{uid}");
+  if(!btn) return;
+
+  function speakJA(){{
+    try {{
+      const w = window; // ✅ iframe 내부에서 직접 실행
+      if (!w.speechSynthesis) {{
+        alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
+        return;
+      }}
+      w.speechSynthesis.cancel();
+
+      const u = new SpeechSynthesisUtterance(String(text));
+      u.lang = "ja-JP";
+      u.rate = 1.0;
+      u.pitch = 1.0;
+
+      const pickAndSpeak = () => {{
+        const vs = w.speechSynthesis.getVoices() || [];
+        const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
+        if (ja) u.voice = ja;
+        w.speechSynthesis.speak(u);
+      }};
+
+      const vsNow = w.speechSynthesis.getVoices();
+      if (vsNow && vsNow.length) {{
+        pickAndSpeak();
+      }} else {{
+        // voices 비동기 로딩 대응
+        w.speechSynthesis.onvoiceschanged = () => pickAndSpeak();
+        setTimeout(() => pickAndSpeak(), 250);
+        setTimeout(() => pickAndSpeak(), 900);
+      }}
+    }} catch(e) {{
+      console.log(e);
+    }}
+  }}
+
+  btn.addEventListener("click", speakJA);
+}})();
+</script>
         """,
-        height=40,
+        height=55,
     )
 
 # ============================================================
