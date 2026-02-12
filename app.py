@@ -7,8 +7,8 @@
 # - 맞힌 단어 제외(정복) + 초기화
 # - 사운드 토글 + 테스트 재생 + 제출 후 1회 SFX
 #
-# ✅ CSV (data/words_beginner.csv) 필수 컬럼(최종):
-#   level, pos, jp_word, reading, meaning, example_jp, example_krㄹ
+# ✅ CSV (data/beginner.csv) 필수 컬럼(최종):
+#   level, pos, jp_word, reading, meaning, example_jp, example_kr
 #   - 문제는 jp_word(한자 포함 단어)에서 뽑음
 #
 # ✅ 이번 수정 반영:
