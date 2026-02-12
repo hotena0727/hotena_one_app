@@ -1437,9 +1437,6 @@ def render_naver_talk():
 # ============================================================
 # ✅ Top Card (마이페이지/관리자/로그아웃)
 # ============================================================
-u = get_current_user()  # 선우님 코드에서 현재 유저 얻는 함수/변수로 교체
-st.write("DEBUG user_id:", getattr(u, "id", None))
-st.write("DEBUG email:", getattr(u, "email", None))
 
 def nav_to(page: str, scroll_top: bool = True):
     st.session_state.page = page
