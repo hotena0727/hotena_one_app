@@ -2381,35 +2381,6 @@ if st.session_state.page == "my":
     st.stop()
 
 # ============================================================
-# ✅ FREE 제한: DB 기준 "오늘 푼 문항 수" 계산
-#   - 위치: supabase + 로그인 복원 완료 후 / 상단 UI 렌더링 전에
-# ============================================================
-from datetime import datetime, timedelta, timezone
-
-KST = timezone(timedelta(hours=9))
-FREE_LIMIT = 30
-
-def get_daily_solved_from_db(sb, user_id: str) -> int:
-    """오늘(한국시간) 푼 문항 수 합계"""
-    now = datetime.now(KST)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_iso = start.isoformat()
-
-    res = (
-        sb.table("quiz_attempts")
-        .select("quiz_len")
-        .eq("user_id", user_id)
-        .gte("created_at", start_iso)
-        .execute()
-    )
-
-    rows = res.data or []
-    return int(sum(int(r.get("quiz_len") or 0) for r in rows))
-
-user_id = st.session_state.get("user_id")
-daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
-
-# ============================================================
 # ✅ PAYWALL CHECK (render_topcard() 보다 위에서 1번만!)
 #   - FREE: 하루 30문항 제한, PRO: 무제한
 # ============================================================
