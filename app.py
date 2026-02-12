@@ -2410,19 +2410,32 @@ user_id = st.session_state.get("user_id")
 daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
 
 # ============================================================
-# ✅ PAYWALL CHECK (render_topcard() 보다 위!!)
+# ✅ PAYWALL CHECK (render_topcard() 보다 위에서 1번만!)
+#   - FREE: 하루 30문항 제한, PRO: 무제한
 # ============================================================
 from datetime import datetime, timedelta, timezone
 
 KST = timezone(timedelta(hours=9))
 FREE_LIMIT = 30
 
-def get_daily_solved_from_db(sb, user_id: str) -> int:
+def render_paywall(daily_solved: int):
+    st.error("🔒 오늘 무료 학습량을 모두 사용하셨어요.")
+    st.caption(f"오늘 푼 문항: {daily_solved} / {FREE_LIMIT}")
+    st.info("PRO로 업그레이드하면 오늘도 계속 풀 수 있어요.")
+    if st.button("💎 PRO 신청/문의", use_container_width=True, key="btn_paywall_go_pro"):
+        st.session_state["_scroll_top_once"] = True
+        st.markdown(f"<meta http-equiv='refresh' content='0;url={NAVER_TALK_URL}'>", unsafe_allow_html=True)
+
+def get_daily_solved_from_db(sb_authed_local, user_id: str) -> int:
+    """오늘(KST) 푼 문항 수 합계 (quiz_attempts.quiz_len 합산)"""
     now = datetime.now(KST)
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # created_at이 timestamptz라면, KST start를 ISO로 넣어도 대부분 정상 필터됩니다.
     start_iso = start.isoformat()
+
     res = (
-        sb.table("quiz_attempts")
+        sb_authed_local.table("quiz_attempts")
         .select("quiz_len")
         .eq("user_id", user_id)
         .gte("created_at", start_iso)
@@ -2431,9 +2444,15 @@ def get_daily_solved_from_db(sb, user_id: str) -> int:
     rows = res.data or []
     return int(sum(int(r.get("quiz_len") or 0) for r in rows))
 
-user_id = st.session_state.get("user_id")
-daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
-is_locked = (not is_pro()) and (daily_solved >= FREE_LIMIT)
+# ✅ 잠금 판단
+is_locked = False
+daily_solved = 0
+
+if not is_pro():
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is not None:
+        daily_solved = get_daily_solved_from_db(sb_authed_local, user_id)
+        is_locked = (daily_solved >= FREE_LIMIT)
 
 if is_locked:
     render_paywall(daily_solved)
@@ -2518,39 +2537,6 @@ if "total_counter" not in st.session_state:
 ensure_mastered_words_shape()
 ensure_excluded_wrong_words_shape()
 ensure_mastery_banner_shape()
-
-# ============================================================
-# ✅ FREE 제한(30문항) - PRO는 무제한
-# ============================================================
-FREE_MAX_QUESTIONS = 30  # 3세트 * 10문항
-
-def _kst_today_str() -> str:
-    # 간단하게 KST 기준 "YYYY-MM-DD" 문자열
-    return pd.Timestamp.now(tz=KST_TZ).strftime("%Y-%m-%d")
-
-def ensure_free_limit_shape():
-    if "free_limit" not in st.session_state or not isinstance(st.session_state.free_limit, dict):
-        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
-    # 날짜 바뀌면 카운트 리셋(하루 30문항 기준)
-    if st.session_state.free_limit.get("date") != _kst_today_str():
-        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
-
-def free_used_count() -> int:
-    ensure_free_limit_shape()
-    return int(st.session_state.free_limit.get("count", 0) or 0)
-
-def free_limit_reached() -> bool:
-    # ✅ PRO는 절대 제한 걸지 않음
-    if is_pro():
-        return False
-    return free_used_count() >= FREE_MAX_QUESTIONS
-
-def add_free_used(n: int):
-    # ✅ PRO는 카운트 누적 자체를 안 함(원하면 해도 되지만 보통 불필요)
-    if is_pro():
-        return
-    ensure_free_limit_shape()
-    st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
 
 # ============================================================
 # ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
