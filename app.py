@@ -1012,80 +1012,12 @@ def sfx(event: str):
 # ============================================================
 # ✅ TTS (브라우저 Web Speech API) - 일본어 발음 버튼용
 # ============================================================
-def render_tts_bootstrap():
-    """페이지에 TTS 함수(전역)를 1번만 주입"""
-    if st.session_state.get("_tts_bootstrapped"):
-        return
-    st.session_state["_tts_bootstrapped"] = True
-
-    components.html(
-        """
-<script>
-(function(){
-  const w = window.parent || window;
-
-  // 이미 있으면 중복 주입 방지
-  if (w.__HATENA_TTS_READY__) return;
-  w.__HATENA_TTS_READY__ = true;
-
-  w.hatenaSpeakJA = function(text){
-    try{
-      if(!text) return;
-
-      // 기존 재생 중이면 끊고 새로
-      if (w.speechSynthesis) {
-        w.speechSynthesis.cancel();
-      } else {
-        alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
-        return;
-      }
-
-      const u = new SpeechSynthesisUtterance(String(text));
-      u.lang = "ja-JP";
-      u.rate = 1.0;   // 0.8~1.1 취향
-      u.pitch = 1.0;
-
-      // 가능하면 ja-JP 보이스 선택
-      const speakOnce = () => {
-        if (spoken) return;          // ✅ 핵심: 1회만
-        spoken = true;
-        
-        const vs = w.speechSynthesis.getVoices() || [];
-        const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
-        if (ja) u.voice = ja;
-        w.speechSynthesis.speak(u);
-      };
-
-      // 일부 브라우저는 voices가 비동기 로딩
-      const vsNow = w.speechSynthesis.getVoices();
-      if (vsNow && vsNow.length) {
-        pickVoice();
-      } else {
-        w.speechSynthesis.onvoiceschanged = () => pickVoice();
-        // 혹시 이벤트가 안 뜨는 환경 대비
-        setTimeout(() => pickVoice(), 250);
-      }
-    }catch(e){}
-  };
-})();
-</script>
-        """,
-        height=1,
-    )
-
-import json
-import streamlit.components.v1 as components
-
 def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
-    """
-    ✅ Streamlit components iframe 안에서 speechSynthesis를 직접 실행
-    → parent 호출/브릿지 방식 제거(가장 안정적)
-    """
     t = (text or "").strip()
     if not t:
         return
 
-    js_text = json.dumps(t)  # JS 안전 전달(따옴표/특수문자 깨짐 방지)
+    js_text = json.dumps(t)
 
     components.html(
         f"""
@@ -1110,13 +1042,21 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
   const btn = document.getElementById("btn_{uid}");
   if(!btn) return;
 
+  // ✅ 중복 클릭/중복 호출 방지용
+  let speakingNow = false;
+
   function speakJA(){{
     try {{
-      const w = window; // ✅ iframe 내부에서 직접 실행
+      const w = window;
       if (!w.speechSynthesis) {{
         alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
         return;
       }}
+
+      // ✅ 같은 클릭에서 여러 번 speak 호출되는 걸 막음
+      if (speakingNow) return;
+      speakingNow = true;
+
       w.speechSynthesis.cancel();
 
       const u = new SpeechSynthesisUtterance(String(text));
@@ -1124,10 +1064,23 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
       u.rate = 1.0;
       u.pitch = 1.0;
 
+      // 말이 끝나거나 에러나면 잠금 해제
+      u.onend = () => {{ speakingNow = false; }};
+      u.onerror = () => {{ speakingNow = false; }};
+
+      let spoken = false;
+
       const pickAndSpeak = () => {{
+        if (spoken) return;          // ✅ 핵심: 1회만
+        spoken = true;
+
+        // ✅ 이벤트/타이머는 1회 사용 후 제거
+        try {{ w.speechSynthesis.onvoiceschanged = null; }} catch(e) {{}}
+
         const vs = w.speechSynthesis.getVoices() || [];
         const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
         if (ja) u.voice = ja;
+
         w.speechSynthesis.speak(u);
       }};
 
@@ -1135,17 +1088,18 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
       if (vsNow && vsNow.length) {{
         pickAndSpeak();
       }} else {{
-        // voices 비동기 로딩 대응
+        // voices 비동기 로딩 대응(✅ 하지만 1회만 speak)
         w.speechSynthesis.onvoiceschanged = () => pickAndSpeak();
         setTimeout(() => pickAndSpeak(), 250);
-        setTimeout(() => pickAndSpeak(), 900);
       }}
     }} catch(e) {{
+      speakingNow = false;
       console.log(e);
     }}
   }}
 
-  btn.addEventListener("click", speakJA);
+  // ✅ 같은 uid에서 이벤트가 중복으로 붙는 상황 방지(가능하면 once)
+  btn.addEventListener("click", speakJA, {{ once:false }});
 }})();
 </script>
         """,
