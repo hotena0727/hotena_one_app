@@ -704,7 +704,6 @@ def run_db(callable_fn):
             st.warning("세션이 만료되었습니다. 다시 로그인해 주세요.")
             st.rerun()
         raise
-
 def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
     if not force and st.session_state.get("user") and st.session_state.get("access_token"):
         return True
@@ -715,6 +714,12 @@ def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
     if rt:
         try:
             refreshed = sb.auth.refresh_session(rt)
+        except Exception:
+            try:
+                refreshed = sb.auth.refresh_session({"refresh_token": rt})
+            except Exception:
+                refreshed = None
+            
             if refreshed and refreshed.session and refreshed.session.access_token:
                 st.session_state.user = refreshed.user
                 st.session_state.access_token = refreshed.session.access_token
@@ -1852,7 +1857,6 @@ def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) 
     df = df.sample(frac=1).reset_index(drop=True)
     return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
 
-
 def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list[dict]:
     # ✅ 안전장치
     pos_group = str(pos_group).strip().lower()
@@ -1863,6 +1867,7 @@ def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list
     ensure_pool_ready()
     pool = st.session_state["_pool"]
 
+    # ✅ wrong_list에서 jp_word 키 뽑기
     wrong_words = []
     for w in (wrong_list or []):
         key = str(w.get("단어", "")).strip()
@@ -1874,23 +1879,33 @@ def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list
         st.warning("현재 오답 노트가 비어 있어요. 🙂")
         return []
 
+    # ✅ 현재 화면의 pos 필터(기타면 체크된 세부 품사들)
     pos_filters = get_pos_filters()
+
+    # ✅ pool에서 오답 단어 + 현재 pos필터로 매칭
     retry_df = pool[
         (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
         & (pool["jp_word"].astype(str).str.strip().isin(wrong_words))
     ].copy()
 
     if retry_df.empty:
-        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
+        st.error("오답 단어를 현재 풀(품사/기타 선택)에서 찾지 못했습니다. (jp_word 매칭/필터 확인)")
         return []
 
-    # ✅ 발음(reading) 문제: 한자 없는 jp_word 제외
+    # ✅ reading이면 ‘한자 포함 jp_word’만
     if qtype == "reading":
         retry_df = retry_df[retry_df["jp_word"].apply(_has_kanji)].copy()
+        if retry_df.empty:
+            st.warning("오답 중 ‘한자 포함 단어’가 없어 발음 문제로는 복습할 수 없어요. (뜻/한→일로 복습 추천)")
+            return []
 
     retry_df = retry_df.sample(frac=1).reset_index(drop=True)
-    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
 
+    # ✅ 오답 전체를 문제로 만들되, 최대 N개까지만 (원하면 삭제 가능)
+    if len(retry_df) > N:
+        retry_df = retry_df.head(N).copy()
+
+    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
 
 # ============================================================
 # ✅ Admin/My pages
@@ -2349,18 +2364,6 @@ render_topcard()
 render_plan_banner()
 render_sound_toggle()
 
-def render_plan_banner():
-    plan = get_user_plan()
-    if plan == "pro":
-        st.success("✨ PRO 이용 중입니다.")
-        return
-
-    st.info("🔒 일부 기능은 PRO에서 열립니다. (예: 오답만 다시풀기, 발음 버튼, 패턴카드 확장 등)")
-    # 여기 버튼은 '결제 링크'나 '상담 링크'로 연결
-    if st.button("💎 PRO 신청/문의", use_container_width=True, key="btn_go_pro"):
-        st.session_state["_scroll_top_once"] = True
-        st.markdown(f"<meta http-equiv='refresh' content='0;url={NAVER_TALK_URL}'>", unsafe_allow_html=True)
-
 streak = st.session_state.get("streak_count")
 did_today = st.session_state.get("did_attend_today")
 if streak is not None:
@@ -2809,53 +2812,6 @@ if st.session_state.submitted:
             save_progress_to_db(sb_authed_local, user_id)
         except Exception:
             pass
-
-# ============================================================
-# ✅ 오답노트 (태그가 그대로 보이는 문제 100% 해결판)
-# - st.markdown() 대신 components.html()로 렌더 (마크다운 파서 우회)
-# ============================================================
-
-
-# (필수) build_quiz_from_wrongs 버그 1줄 수정도 같이 반영하세요.
-# 아래 함수 안의 잘못된 base_pos 참조를 retry_df로 바꿉니다.
-def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list:
-    # ✅ 안전장치
-    pos_group = str(pos_group).strip().lower()
-    qtype = str(qtype).strip()
-    if pos_group in POS_ONLY_2TYPES and qtype == "reading":
-        qtype = "meaning"
-
-    ensure_pool_ready()
-    pool = st.session_state["_pool"]
-
-    wrong_words = []
-    for w in (wrong_list or []):
-        key = str(w.get("단어", "")).strip()
-        if key:
-            wrong_words.append(key)
-    wrong_words = list(dict.fromkeys(wrong_words))
-
-    if not wrong_words:
-        st.warning("현재 오답 노트가 비어 있어요. 🙂")
-        return []
-
-    pos_filters = get_pos_filters()
-    retry_df = pool[
-        (pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters))
-        & (pool["jp_word"].isin(wrong_words))
-    ].copy()
-
-    if len(retry_df) == 0:
-        st.error("오답 단어를 풀에서 찾지 못했습니다. (jp_word 매칭 확인)")
-        st.stop()
-
-    retry_df = retry_df.sample(frac=1).reset_index(drop=True)
-
-    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외 (버그 수정)
-    if qtype == "reading":
-        retry_df = retry_df[retry_df["jp_word"].apply(_has_kanji)].copy()
-
-    return [make_question(retry_df.iloc[i], qtype, pool) for i in range(len(retry_df))]
 
 # ============================================================
 # ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
