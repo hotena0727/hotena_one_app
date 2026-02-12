@@ -2471,6 +2471,39 @@ ensure_excluded_wrong_words_shape()
 ensure_mastery_banner_shape()
 
 # ============================================================
+# ✅ FREE 제한(30문항) - PRO는 무제한
+# ============================================================
+FREE_MAX_QUESTIONS = 30  # 3세트 * 10문항
+
+def _kst_today_str() -> str:
+    # 간단하게 KST 기준 "YYYY-MM-DD" 문자열
+    return pd.Timestamp.now(tz=KST_TZ).strftime("%Y-%m-%d")
+
+def ensure_free_limit_shape():
+    if "free_limit" not in st.session_state or not isinstance(st.session_state.free_limit, dict):
+        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
+    # 날짜 바뀌면 카운트 리셋(하루 30문항 기준)
+    if st.session_state.free_limit.get("date") != _kst_today_str():
+        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
+
+def free_used_count() -> int:
+    ensure_free_limit_shape()
+    return int(st.session_state.free_limit.get("count", 0) or 0)
+
+def free_limit_reached() -> bool:
+    # ✅ PRO는 절대 제한 걸지 않음
+    if is_pro():
+        return False
+    return free_used_count() >= FREE_MAX_QUESTIONS
+
+def add_free_used(n: int):
+    # ✅ PRO는 카운트 누적 자체를 안 함(원하면 해도 되지만 보통 불필요)
+    if is_pro():
+        return
+    ensure_free_limit_shape()
+    st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
+    
+# ============================================================
 # ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
 # ============================================================
 def on_pick_pos_group(ps: str):
@@ -2595,7 +2628,21 @@ st.markdown("</div>", unsafe_allow_html=True)
 cbtn1, cbtn2 = st.columns(2)
 
 with cbtn1:
-    if st.button("🔄 새 문제(랜덤 10문항)", use_container_width=True, key="btn_new_random_10"):
+    locked = free_limit_reached()
+
+    if locked:
+        st.warning("무료는 하루 30문항(3세트)까지입니다. 더 풀려면 PRO가 필요합니다.")
+
+    if st.button(
+        "🔄 새 문제(랜덤 10문항)",
+        use_container_width=True,
+        key="btn_new_random_10",
+        disabled=locked
+    ):
+        # ✅ 서버에서도 2중 차단
+        if free_limit_reached():
+            st.stop()
+
         k_now = mastery_key()
         if st.session_state.get("mastery_done", {}).get(k_now, False):
             st.session_state["_scroll_top_once"] = True
@@ -2643,6 +2690,10 @@ if "quiz" not in st.session_state or not isinstance(st.session_state.quiz, list)
 
 is_mastered_done = bool(st.session_state.get("mastery_done", {}).get(k_now, False))
 if (not is_mastered_done) and len(st.session_state.quiz) == 0:
+    if free_limit_reached():
+        st.warning("무료는 하루 30문항(3세트)까지입니다. 더 풀려면 PRO가 필요합니다.")
+        st.stop()
+
     clear_question_widget_keys()
     new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group) or []
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
@@ -2796,6 +2847,14 @@ if st.session_state.submitted:
     st.session_state.wrong_list = wrong_list
 
     st.success(f"점수: {score} / {quiz_len}")
+    # ✅ FREE 제한 카운트 누적 (제출 1회 = quiz_len 소비)
+    #    같은 제출 화면에서 rerun이 여러 번 나도 중복 누적되지 않도록 1회만 적용
+    if "free_limit_applied_this_attempt" not in st.session_state:
+        st.session_state.free_limit_applied_this_attempt = False
+
+    if not st.session_state.free_limit_applied_this_attempt:
+        add_free_used(quiz_len)  # 보통 10
+        st.session_state.free_limit_applied_this_attempt = True
     ratio = score / quiz_len if quiz_len else 0
 
     if ratio == 1:
@@ -2993,10 +3052,22 @@ if st.session_state.get("submitted", False):
 
     cA, cB = st.columns(2)
     with cA:
-        if st.button("✅ 다음 10문항 시작하기", type="primary", use_container_width=True, key="btn_next_10"):
+        locked = free_limit_reached()
+
+        if st.button(
+            "✅ 다음 10문항 시작하기",
+            type="primary",
+            use_container_width=True,
+            key="btn_next_10",
+            disabled=locked
+        ):
+            if locked:
+            st.stop()
+
             clear_question_widget_keys()
             new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
             start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            st.session_state.free_limit_applied_this_attempt = False
             mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
             st.session_state["_scroll_top_once"] = True
             st.rerun()
