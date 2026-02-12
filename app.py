@@ -1046,7 +1046,7 @@ def render_tts_bootstrap():
       u.pitch = 1.0;
 
       // 가능하면 ja-JP 보이스 선택
-      const pickVoice = () => {
+      const speakOnce = () => {
         if (spoken) return;          // ✅ 핵심: 1회만
         spoken = true;
         
