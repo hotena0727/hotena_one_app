@@ -2492,6 +2492,63 @@ def add_free_used(n: int):
         return
     ensure_free_limit_shape()
     st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
+
+
+# ============================================================
+# ✅ FREE 제한: DB 기준 "오늘 푼 문항 수" 계산
+#   - 위치: supabase + 로그인 복원 완료 후 / 상단 UI 렌더링 전에
+# ============================================================
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+FREE_LIMIT = 30
+
+def get_daily_solved_from_db(sb, user_id: str) -> int:
+    """오늘(한국시간) 푼 문항 수 합계"""
+    now = datetime.now(KST)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_iso = start.isoformat()
+
+    res = (
+        sb.table("quiz_attempts")
+        .select("quiz_len")
+        .eq("user_id", user_id)
+        .gte("created_at", start_iso)
+        .execute()
+    )
+
+    rows = res.data or []
+    return int(sum(int(r.get("quiz_len") or 0) for r in rows))
+
+user_id = st.session_state.get("user_id")
+daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+
+# ============================================================
+# ✅ PAYWALL: 여기서 "안내만" 띄우고 아래 렌더 전부 차단
+# ============================================================
+def render_paywall():
+    st.markdown("## 🔒 오늘의 무료 학습량(30문항)을 모두 사용하셨어요")
+    st.write("무료는 하루 **30문항(3세트)** 까지 이용 가능합니다.")
+    st.write("PRO로 업그레이드하면 계속 학습할 수 있어요.")
+
+    if st.button("🚀 PRO 업그레이드", type="primary", use_container_width=True, key="btn_go_pro"):
+        st.info("PRO 업그레이드 안내로 이동합니다. (링크/라우팅 연결 예정)")
+
+    st.caption("※ 제한이 걸린 상태에서는 품사/유형을 바꿔도 문제가 표시되지 않습니다.")
+
+    FREE_LIMIT = 30  # 하루 무료 30문항
+    
+    # 1) 오늘 푼 문항 수 계산 (DB 기준)
+    user_id = st.session_state.get("user_id")
+    daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+
+    # 2) 잠금 여부 판단 (is_pro는 "함수"로 통일)
+    is_locked = (not is_pro()) and (daily_solved >= FREE_LIMIT)
+
+    # 3) 잠겼으면 안내만 보여주고 아래 렌더링 차단
+    if is_locked:
+        render_paywall()
+        st.stop()
     
 # ============================================================
 # ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
@@ -2631,6 +2688,7 @@ with cbtn1:
     ):
         # ✅ 서버에서도 2중 차단(그대로 유지 OK)
         if free_limit_reached():
+            render_paywall()
             st.stop()
 
         clear_question_widget_keys()
