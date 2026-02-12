@@ -1042,8 +1042,30 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
   const btn = document.getElementById("btn_{uid}");
   if(!btn) return;
 
-  // ✅ 중복 클릭/중복 호출 방지용
   let speakingNow = false;
+
+  function pickFemaleJaVoice(vs){{
+    if (!vs || !vs.length) return null;
+
+    // ✅ 일본어 보이스만 추림
+    const ja = vs.filter(v => String(v.lang || "").toLowerCase().startsWith("ja"));
+    if (!ja.length) return null;
+
+    // ✅ "여성"로 추정되는 이름/키워드 우선 (환경별로 다름)
+    const prefer = /(kyoko|haruka|ayumi|nanami|hina|sakura|female|woman|girl)/i;
+    const avoid  = /(otoya|takumi|male|man|boy)/i;
+
+    // 1) prefer 강하게 매칭
+    let cand = ja.find(v => prefer.test(String(v.name || "")));
+    if (cand) return cand;
+
+    // 2) avoid는 피하고 남은 것 중 첫번째
+    cand = ja.find(v => !avoid.test(String(v.name || "")));
+    if (cand) return cand;
+
+    // 3) 그냥 첫번째 일본어 보이스
+    return ja[0];
+  }}
 
   function speakJA(){{
     try {{
@@ -1053,7 +1075,6 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
         return;
       }}
 
-      // ✅ 같은 클릭에서 여러 번 speak 호출되는 걸 막음
       if (speakingNow) return;
       speakingNow = true;
 
@@ -1061,25 +1082,25 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
 
       const u = new SpeechSynthesisUtterance(String(text));
       u.lang = "ja-JP";
-      u.rate = 1.0;
-      u.pitch = 1.0;
 
-      // 말이 끝나거나 에러나면 잠금 해제
-      u.onend = () => {{ speakingNow = false; }};
+      // ✅ “여성 느낌” 쪽으로 살짝 보정 (너무 올리면 부자연스러울 수 있어요)
+      u.rate  = 1.0;
+      u.pitch = 1.15;
+
+      u.onend   = () => {{ speakingNow = false; }};
       u.onerror = () => {{ speakingNow = false; }};
 
       let spoken = false;
 
       const pickAndSpeak = () => {{
-        if (spoken) return;          // ✅ 핵심: 1회만
+        if (spoken) return;
         spoken = true;
 
-        // ✅ 이벤트/타이머는 1회 사용 후 제거
         try {{ w.speechSynthesis.onvoiceschanged = null; }} catch(e) {{}}
 
         const vs = w.speechSynthesis.getVoices() || [];
-        const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
-        if (ja) u.voice = ja;
+        const v = pickFemaleJaVoice(vs);
+        if (v) u.voice = v;
 
         w.speechSynthesis.speak(u);
       }};
@@ -1088,7 +1109,6 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
       if (vsNow && vsNow.length) {{
         pickAndSpeak();
       }} else {{
-        // voices 비동기 로딩 대응(✅ 하지만 1회만 speak)
         w.speechSynthesis.onvoiceschanged = () => pickAndSpeak();
         setTimeout(() => pickAndSpeak(), 250);
       }}
@@ -1098,7 +1118,6 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
     }}
   }}
 
-  // ✅ 같은 uid에서 이벤트가 중복으로 붙는 상황 방지(가능하면 once)
   btn.addEventListener("click", speakJA, {{ once:false }});
 }})();
 </script>
