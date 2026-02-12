@@ -8,7 +8,7 @@
 # - 사운드 토글 + 테스트 재생 + 제출 후 1회 SFX
 #
 # ✅ CSV (data/words_beginner.csv) 필수 컬럼(최종):
-#   level, pos, jp_word, reading, meaning, example_jp, example_kr
+#   level, pos, jp_word, reading, meaning, example_jp, example_krㄹ
 #   - 문제는 jp_word(한자 포함 단어)에서 뽑음
 #
 # ✅ 이번 수정 반영:
@@ -1006,6 +1006,92 @@ def sfx(event: str):
     path = mp.get(event)
     if path:
         play_sound_file(path)
+
+# ============================================================
+# ✅ TTS (브라우저 Web Speech API) - 일본어 발음 버튼용
+# ============================================================
+def render_tts_bootstrap():
+    """페이지에 TTS 함수(전역)를 1번만 주입"""
+    if st.session_state.get("_tts_bootstrapped"):
+        return
+    st.session_state["_tts_bootstrapped"] = True
+
+    components.html(
+        """
+<script>
+(function(){
+  const w = window.parent || window;
+
+  // 이미 있으면 중복 주입 방지
+  if (w.__HATENA_TTS_READY__) return;
+  w.__HATENA_TTS_READY__ = true;
+
+  w.hatenaSpeakJA = function(text){
+    try{
+      if(!text) return;
+
+      // 기존 재생 중이면 끊고 새로
+      if (w.speechSynthesis) {
+        w.speechSynthesis.cancel();
+      } else {
+        alert("이 기기/브라우저는 음성 재생을 지원하지 않습니다.");
+        return;
+      }
+
+      const u = new SpeechSynthesisUtterance(String(text));
+      u.lang = "ja-JP";
+      u.rate = 1.0;   // 0.8~1.1 취향
+      u.pitch = 1.0;
+
+      // 가능하면 ja-JP 보이스 선택
+      const pickVoice = () => {
+        const vs = w.speechSynthesis.getVoices() || [];
+        const ja = vs.find(v => (v.lang || "").toLowerCase().startsWith("ja"));
+        if (ja) u.voice = ja;
+        w.speechSynthesis.speak(u);
+      };
+
+      // 일부 브라우저는 voices가 비동기 로딩
+      const vsNow = w.speechSynthesis.getVoices();
+      if (vsNow && vsNow.length) {
+        pickVoice();
+      } else {
+        w.speechSynthesis.onvoiceschanged = () => pickVoice();
+        // 혹시 이벤트가 안 뜨는 환경 대비
+        setTimeout(() => pickVoice(), 250);
+      }
+    }catch(e){}
+  };
+})();
+</script>
+        """,
+        height=0,
+    )
+
+def render_pronounce_button(text: str, uid: str, label: str = "🔊"):
+    """문제 옆에 붙일 발음 버튼(클릭하면 TTS)"""
+    safe = _esc_html(text)
+    # uid는 질문 index 같은 걸로 유니크하게
+    components.html(
+        f"""
+<div style="display:inline-block; margin-left:8px;">
+  <button
+    type="button"
+    onclick="(window.parent||window).hatenaSpeakJA('{safe}')"
+    style="
+      border:1px solid rgba(120,120,120,0.25);
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-weight: 900;
+      cursor: pointer;
+    "
+    aria-label="pronounce-{uid}"
+  >{label}</button>
+</div>
+        """,
+        height=40,
+    )
 
 # ============================================================
 # ✅ Login UI
@@ -2486,6 +2572,21 @@ for idx, q in enumerate(st.session_state.quiz):
 """,
     unsafe_allow_html=True
 )
+
+    # ✅ 뜻(meaning) 문제에서 발음 버튼 표시
+    render_tts_bootstrap()  # TTS 전역 주입(1회)
+
+    if st.session_state.get("quiz_type") == "meaning":
+        # 문제 텍스트는 jp_word가 한자 포함이라 "reading"을 읽게 하는 게 더 자연스럽습니다.
+        # (예: 勉強 -> べんきょう)
+        tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
+
+        # 원하면 "소리 ON일 때만" 보이게 할 수도 있어요.
+        # if st.session_state.get("sound_enabled", False):
+        render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
+
+
+    
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
 
     prev = st.session_state.answers[idx]
