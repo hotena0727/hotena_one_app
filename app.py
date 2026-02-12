@@ -536,6 +536,21 @@ def mastery_key(qtype: str | None = None, pos: str | None = None) -> str:
     ps = (pos or st.session_state.get("pos_group", "noun")).lower().strip()
     return f"{ps}__{qt}"
 
+def fetch_is_admin_from_db(sb_authed, user_id: str) -> bool:
+    try:
+        res = (
+            sb_authed.table("profiles")
+            .select("is_admin")
+            .eq("id", user_id)
+            .single()
+            .execute()
+        )
+        if res and res.data is not None:
+            return bool(res.data.get("is_admin", False))
+    except Exception:
+        return False
+    return False
+
 def is_admin() -> bool:
     cached = st.session_state.get("is_admin_cached")
     if cached is not None:
