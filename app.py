@@ -1850,7 +1850,7 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
 
     flags = st.session_state.get("flags", {})
     if not flags.get("is_pro", False):
-        n = int(flags.get("max_quiz_len_free", 1))
+        n = int(flags.get("max_quiz_len_free", 10) or 10)
         st.session_state.quiz_len = n
 
     pos_group = str(pos_group).strip().lower()
