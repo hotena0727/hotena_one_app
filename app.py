@@ -1122,7 +1122,7 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
 }})();
 </script>
         """,
-        height=30,
+        height=34,
     )
 
 # ============================================================
