@@ -2940,10 +2940,15 @@ if st.session_state.submitted:
 # ✅ 제출 후: 오답 노트 (카드형 + pos_group별 expander)
 #   - HTML이 그대로 보이는 문제 해결(unsafe_allow_html=True)
 #   - 값은 html.escape로 안전 처리
+#   - 예문은 quiz에서 안전하게 매칭해서 붙이기(가능하면)
 # ============================================================
+# ⚠️ 이 블록이 동작하려면 파일 상단에 `import html` 이 필요합니다.
+# (이미 있다면 추가하지 마세요)
+
 if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
     st.subheader("❌ 오답 노트")
 
+    # ✅ CSS (1회만 주입)
     st.markdown(
         """
 <style>
@@ -2964,6 +2969,7 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
 .wrong-no{ font-weight:900; font-size:16px; }
 .wrong-meta{ font-size:12px; opacity:.72; white-space:nowrap; }
 .wrong-q{ font-size:14px; line-height:1.55; margin: 6px 0 10px 0; opacity:.92; }
+
 .wrong-row{
   display:flex;
   justify-content:space-between;
@@ -2977,6 +2983,7 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
 .wrong-k{ font-weight:900; font-size:13px; opacity:.8; }
 .wrong-v{ font-weight:900; font-size:14px; }
 .wrong-v b{ font-weight:900; }
+
 .wrong-mini{
   display:grid;
   grid-template-columns: 1fr;
@@ -2991,6 +2998,7 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
   padding:8px 10px;
   background: rgba(255,255,255,0.02);
 }
+
 .wrong-ex{
   margin-top:10px;
   padding:10px 10px;
@@ -3007,32 +3015,85 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
         unsafe_allow_html=True,
     )
 
+    # ------------------------------------------------------------
+    # ✅ HTML 안전 처리 유틸
+    #   - 화면에 그릴 때만 escape
+    #   - 내부 비교/매칭은 "raw 텍스트"로 통일해서 처리
+    # ------------------------------------------------------------
+    def _s(x) -> str:
+        """None -> '', 그 외 -> str"""
+        return "" if x is None else str(x)
+
+    def _raw(x) -> str:
+        """
+        DB/세션에 이미 escape된 문자열이 섞일 수 있으니,
+        비교/매칭용은 unescape로 통일.
+        """
+        try:
+            return html.unescape(_s(x)).strip()
+        except Exception:
+            return _s(x).strip()
+
     def _h(x) -> str:
-        # ✅ HTML 안전 처리(사용자 입력/DB 데이터가 섞여도 안전)
-        return html.escape("" if x is None else str(x))
+        """렌더링용 escape"""
+        try:
+            return html.escape(_s(x))
+        except Exception:
+            return _s(x)
 
-    def render_wrong_card(w: dict):
-        no = _h(w.get("No", ""))
-        qtxt = _h(w.get("문제", ""))
-        mya = _h(w.get("내 답", ""))
-        ans = _h(w.get("정답", ""))
-        word = _h(w.get("단어", ""))
-        yomi = _h(w.get("읽기", ""))
-        mean = _h(w.get("뜻", ""))
-        posg = _h(w.get("품사", ""))
-        qtype = _h(w.get("유형", ""))
+    # ------------------------------------------------------------
+    # ✅ quiz에서 예문 빠르게 찾기: jp_word 기준 맵
+    # ------------------------------------------------------------
+    ex_map = {}
+    try:
+        for qq in (st.session_state.get("quiz") or []):
+            key = _raw(qq.get("jp_word", ""))
+            if key and key not in ex_map:
+                ex_map[key] = {
+                    "example_jp": _raw(qq.get("example_jp", "")),
+                    "example_kr": _raw(qq.get("example_kr", "")),
+                }
+    except Exception:
+        ex_map = {}
 
-        ex_jp = _h(w.get("예문JP", ""))  # (없으면 빈칸)
-        ex_kr = _h(w.get("예문KR", ""))
+    # ------------------------------------------------------------
+    # ✅ 카드 렌더
+    # ------------------------------------------------------------
+    def render_wrong_card(w: dict, idx: int = 0):
+        # raw(비교/버튼용)
+        no_raw = _raw(w.get("No", "")) or str(idx + 1)
+        qtxt_raw = _raw(w.get("문제", ""))
+        mya_raw = _raw(w.get("내 답", ""))
+        ans_raw = _raw(w.get("정답", ""))
+        word_raw = _raw(w.get("단어", ""))
+        yomi_raw = _raw(w.get("읽기", ""))
+        mean_raw = _raw(w.get("뜻", ""))
+        posg_raw = _raw(w.get("품사", "etc")) or "etc"
+        qtype_raw = _raw(w.get("유형", ""))
 
-        # ✅ 저장된 wrong_list에는 예문 키가 없으니, 현재 quiz에서 찾아 붙이기(가능하면)
-        #    (원하면 아래 로직 지워도 됨)
-        if (not ex_jp) and (not ex_kr):
-            for qq in (st.session_state.get("quiz") or []):
-                if str(qq.get("jp_word", "")).strip() == html.unescape(word):
-                    ex_jp = _h(qq.get("example_jp", ""))
-                    ex_kr = _h(qq.get("example_kr", ""))
-                    break
+        # 예문(저장되어 있으면 우선)
+        ex_jp_raw = _raw(w.get("예문JP", ""))
+        ex_kr_raw = _raw(w.get("예문KR", ""))
+
+        # 없으면 quiz에서 매칭해서 붙이기
+        if (not ex_jp_raw and not ex_kr_raw) and word_raw:
+            hit = ex_map.get(word_raw)
+            if hit:
+                ex_jp_raw = hit.get("example_jp", "")
+                ex_kr_raw = hit.get("example_kr", "")
+
+        # HTML escape(렌더링용)
+        no = _h(no_raw)
+        qtxt = _h(qtxt_raw)
+        mya = _h(mya_raw)
+        ans = _h(ans_raw)
+        word = _h(word_raw)
+        yomi = _h(yomi_raw)
+        mean = _h(mean_raw)
+        posg = _h(posg_raw)
+        qtype = _h(qtype_raw)
+        ex_jp = _h(ex_jp_raw)
+        ex_kr = _h(ex_kr_raw)
 
         card_html = f"""
 <div class="jp">
@@ -3060,7 +3121,7 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
       <div class="chip">뜻: <b>{mean}</b></div>
     </div>
 """
-        if ex_jp or ex_kr:
+        if ex_jp_raw or ex_kr_raw:
             card_html += f"""
     <div class="wrong-ex">
       <div class="jp">{ex_jp}</div>
@@ -3071,27 +3132,39 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
   </div>
 </div>
 """
-        # ✅ 핵심: unsafe_allow_html=True
+
+        # ✅ 핵심: HTML 렌더링
         st.markdown(card_html, unsafe_allow_html=True)
 
         # ✅ (선택) 발음 버튼: PRO일 때만
-        if is_pro():
-            # meaning/reading 어디서든 "reading"을 읽어주는 게 자연스러움
-            tts_text = html.unescape(yomi) or html.unescape(word)
-            render_pronounce_button(tts_text, uid=f"wrong_{no}", label="🔊 발음")
+        if "is_pro" in globals() and callable(globals().get("is_pro")) and is_pro():
+            # reading 우선, 없으면 단어
+            tts_text = yomi_raw or word_raw
+            if tts_text and ("render_pronounce_button" in globals()) and callable(globals().get("render_pronounce_button")):
+                # uid는 "중복 없는 값"으로
+                render_pronounce_button(tts_text, uid=f"wrong_{no_raw}_{idx}", label="🔊 발음")
 
+    # ------------------------------------------------------------
     # ✅ pos_group별로 묶어서 expander
+    # ------------------------------------------------------------
     wrongs = st.session_state.get("wrong_list") or []
+
     grouped: dict[str, list[dict]] = {}
     for w in wrongs:
-        g = str(w.get("품사", "etc") or "etc").strip()
+        g = _raw(w.get("품사", "etc")) or "etc"
         grouped.setdefault(g, []).append(w)
 
-    for g, items in grouped.items():
-        label = POS_LABEL_MAP.get(g, g)
+    # 보기 좋게: POS_LABEL_MAP이 있으면 그 순서를 약간 유지(없으면 알파)
+    def _group_sort_key(g: str):
+        # 자주 쓰는 pos가 먼저 오게 하고 싶으면 여기 순서를 추가해도 됨
+        return str(g)
+
+    for g in sorted(grouped.keys(), key=_group_sort_key):
+        items = grouped[g]
+        label = (POS_LABEL_MAP.get(g, g) if "POS_LABEL_MAP" in globals() else g)
         with st.expander(f"📌 {label} 오답 ({len(items)}개)", expanded=True):
-            for w in items:
-                render_wrong_card(w)
+            for i, w in enumerate(items):
+                render_wrong_card(w, idx=i)
 
 # ============================================================
 # ✅ 제출 후: 네이버톡 (옵션)
