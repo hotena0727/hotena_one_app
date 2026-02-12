@@ -2602,7 +2602,6 @@ for idx, q in enumerate(st.session_state.quiz):
 )
 
     # ✅ 뜻(meaning) 문제에서 발음 버튼 표시
-    render_tts_bootstrap()  # TTS 전역 주입(1회)
 
     if st.session_state.get("quiz_type") == "meaning":
         # 문제 텍스트는 jp_word가 한자 포함이라 "reading"을 읽게 하는 게 더 자연스럽습니다.
