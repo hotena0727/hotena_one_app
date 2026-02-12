@@ -1065,7 +1065,7 @@ def render_tts_bootstrap():
 })();
 </script>
         """,
-        height=0,
+        height=1,
     )
 
 def render_pronounce_button(text: str, uid: str, label: str = "🔊"):
