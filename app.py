@@ -2642,8 +2642,6 @@ for idx, q in enumerate(st.session_state.quiz):
         if st.session_state.get("quiz_type") == "meaning":
             tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
             render_pronounce_button(
-            tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
-            render_pronounce_button(
                 tts_text,
                 uid=f"{st.session_state.quiz_version}_{idx}",
                 label="🔊",
