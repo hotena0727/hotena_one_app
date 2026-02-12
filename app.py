@@ -2381,6 +2381,69 @@ if st.session_state.page == "my":
     st.stop()
 
 # ============================================================
+# ✅ FREE 제한(30문항) - PRO는 무제한
+# ============================================================
+FREE_MAX_QUESTIONS = 30  # 3세트 * 10문항
+
+def _kst_today_str() -> str:
+    # 간단하게 KST 기준 "YYYY-MM-DD" 문자열
+    return pd.Timestamp.now(tz=KST_TZ).strftime("%Y-%m-%d")
+
+def ensure_free_limit_shape():
+    if "free_limit" not in st.session_state or not isinstance(st.session_state.free_limit, dict):
+        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
+    # 날짜 바뀌면 카운트 리셋(하루 30문항 기준)
+    if st.session_state.free_limit.get("date") != _kst_today_str():
+        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
+
+def free_used_count() -> int:
+    ensure_free_limit_shape()
+    return int(st.session_state.free_limit.get("count", 0) or 0)
+
+def free_limit_reached() -> bool:
+    # ✅ PRO는 절대 제한 걸지 않음
+    if is_pro():
+        return False
+    return free_used_count() >= FREE_MAX_QUESTIONS
+
+def add_free_used(n: int):
+    # ✅ PRO는 카운트 누적 자체를 안 함(원하면 해도 되지만 보통 불필요)
+    if is_pro():
+        return
+    ensure_free_limit_shape()
+    st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
+
+
+# ============================================================
+# ✅ FREE 제한: DB 기준 "오늘 푼 문항 수" 계산
+#   - 위치: supabase + 로그인 복원 완료 후 / 상단 UI 렌더링 전에
+# ============================================================
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+FREE_LIMIT = 30
+
+def get_daily_solved_from_db(sb, user_id: str) -> int:
+    """오늘(한국시간) 푼 문항 수 합계"""
+    now = datetime.now(KST)
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    start_iso = start.isoformat()
+
+    res = (
+        sb.table("quiz_attempts")
+        .select("quiz_len")
+        .eq("user_id", user_id)
+        .gte("created_at", start_iso)
+        .execute()
+    )
+
+    rows = res.data or []
+    return int(sum(int(r.get("quiz_len") or 0) for r in rows))
+
+user_id = st.session_state.get("user_id")
+daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
+
+# ============================================================
 # ✅ Quiz Page
 # ============================================================
 def render_plan_banner():
@@ -2459,69 +2522,6 @@ if "total_counter" not in st.session_state:
 ensure_mastered_words_shape()
 ensure_excluded_wrong_words_shape()
 ensure_mastery_banner_shape()
-
-# ============================================================
-# ✅ FREE 제한(30문항) - PRO는 무제한
-# ============================================================
-FREE_MAX_QUESTIONS = 30  # 3세트 * 10문항
-
-def _kst_today_str() -> str:
-    # 간단하게 KST 기준 "YYYY-MM-DD" 문자열
-    return pd.Timestamp.now(tz=KST_TZ).strftime("%Y-%m-%d")
-
-def ensure_free_limit_shape():
-    if "free_limit" not in st.session_state or not isinstance(st.session_state.free_limit, dict):
-        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
-    # 날짜 바뀌면 카운트 리셋(하루 30문항 기준)
-    if st.session_state.free_limit.get("date") != _kst_today_str():
-        st.session_state.free_limit = {"date": _kst_today_str(), "count": 0}
-
-def free_used_count() -> int:
-    ensure_free_limit_shape()
-    return int(st.session_state.free_limit.get("count", 0) or 0)
-
-def free_limit_reached() -> bool:
-    # ✅ PRO는 절대 제한 걸지 않음
-    if is_pro():
-        return False
-    return free_used_count() >= FREE_MAX_QUESTIONS
-
-def add_free_used(n: int):
-    # ✅ PRO는 카운트 누적 자체를 안 함(원하면 해도 되지만 보통 불필요)
-    if is_pro():
-        return
-    ensure_free_limit_shape()
-    st.session_state.free_limit["count"] = min(FREE_MAX_QUESTIONS, free_used_count() + int(n))
-
-
-# ============================================================
-# ✅ FREE 제한: DB 기준 "오늘 푼 문항 수" 계산
-#   - 위치: supabase + 로그인 복원 완료 후 / 상단 UI 렌더링 전에
-# ============================================================
-from datetime import datetime, timedelta, timezone
-
-KST = timezone(timedelta(hours=9))
-FREE_LIMIT = 30
-
-def get_daily_solved_from_db(sb, user_id: str) -> int:
-    """오늘(한국시간) 푼 문항 수 합계"""
-    now = datetime.now(KST)
-    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    start_iso = start.isoformat()
-
-    res = (
-        sb.table("quiz_attempts")
-        .select("quiz_len")
-        .eq("user_id", user_id)
-        .gte("created_at", start_iso)
-        .execute()
-    )
-
-    rows = res.data or []
-    return int(sum(int(r.get("quiz_len") or 0) for r in rows))
-
-user_id = st.session_state.get("user_id")
-daily_solved = get_daily_solved_from_db(supabase, user_id) if user_id else 0
 
 # ============================================================
 # ✅ PAYWALL: 여기서 "안내만" 띄우고 아래 렌더 전부 차단
