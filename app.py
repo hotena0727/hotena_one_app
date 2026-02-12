@@ -75,6 +75,7 @@ NAVER_TALK_URL = "https://talk.naver.com/W45141"
 
 KST_TZ = "Asia/Seoul"
 DEFAULT_N = 10  # 기본 10문항
+N = DEFAULT_N   # ✅ (핵심) 코드 전반에서 쓰는 N을 정의
 
 # ============================================================
 # ✅ POS / QUIZ TYPES  (✅ B안: pos_group + other 세부 선택)
@@ -1845,16 +1846,13 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
     }
 
 def build_quiz(qtype: str, pos_group: str) -> list[dict]:
-    # ✅ 퀴즈 길이(플랜 제한 반영)
     n = int(st.session_state.get("quiz_len", 10) or DEFAULT_N)
 
-    # ✅ Free면 강제 10
     flags = st.session_state.get("flags", {})
     if not flags.get("is_pro", False):
         n = int(flags.get("max_quiz_len_free", 10) or 10)
         st.session_state.quiz_len = n
-        
-    # ✅ 안전장치: 제한 그룹에서는 reading 강제 금지
+
     pos_group = str(pos_group).strip().lower()
     qtype = str(qtype).strip()
     if pos_group in POS_ONLY_2TYPES and qtype == "reading":
@@ -1867,31 +1865,26 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
     ensure_seen_words_shape()
 
     pool = st.session_state["_pool"]
-
     pos_filters = get_pos_filters()
     base_pos = pool[pool["pos"].astype(str).str.strip().str.lower().isin(pos_filters)].copy()
 
-    # ✅ 발음(reading) 문제: jp_word에 한자가 없는(히라가나만 등) 단어는 제외
     if qtype == "reading":
         base_pos = base_pos[base_pos["jp_word"].apply(_has_kanji)].copy()
 
-    if len(base_pos) < N:
-        st.warning(f"{POS_LABEL_MAP.get(pos_group,pos_group)} 단어가 부족합니다. (현재 {len(base_pos)}개 / 필요 {N}개)")
+    # ✅ 여기: N이 아니라 n
+    if len(base_pos) < n:
+        st.warning(f"{POS_LABEL_MAP.get(pos_group,pos_group)} 단어가 부족합니다. (현재 {len(base_pos)}개 / 필요 {n}개)")
         return []
 
     k = mastery_key(qtype=qtype, pos=pos_group)
-
     seen = st.session_state.get("seen_words", {}).get(k, set())
     mastered = st.session_state.get("mastered_words", {}).get(k, set())
     excluded = st.session_state.get("excluded_wrong_words", {}).get(k, set())
 
     blocked = set()
-    if seen:
-        blocked |= set(seen)          # ✅ 한 번이라도 출제된 건 전부 제외
-    if mastered:
-        blocked |= set(mastered)      # (겹쳐도 무관)
-    if excluded:
-        blocked |= set(excluded)    
+    if seen: blocked |= set(seen)
+    if mastered: blocked |= set(mastered)
+    if excluded: blocked |= set(excluded)
 
     def _filter_blocked(df: pd.DataFrame) -> pd.DataFrame:
         if not blocked:
@@ -1901,13 +1894,13 @@ def build_quiz(qtype: str, pos_group: str) -> list[dict]:
 
     base = _filter_blocked(base_pos)
 
-    if len(base) < N:
+    if len(base) < n:
         st.session_state.setdefault("mastery_done", {})
         st.session_state.mastery_done[k] = True
         return []
 
-    sampled = base.sample(n=N, replace=False).reset_index(drop=True)
-    return [make_question(sampled.iloc[i], qtype, pool) for i in range(N)]
+    sampled = base.sample(n=n, replace=False).reset_index(drop=True)  # ✅ n
+    return [make_question(sampled.iloc[i], qtype, pool) for i in range(n)]  # ✅ n
 
 
 # ============================================================
@@ -1954,7 +1947,9 @@ def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) 
         return []
 
     df = df.sample(frac=1).reset_index(drop=True)
+    df = df.head(n)  # ✅ 최대 n문항만
     return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
+
 
 
 def build_quiz_from_wrongs(wrong_list: list, qtype: str, pos_group: str) -> list[dict]:
@@ -2929,9 +2924,9 @@ if st.session_state.submitted:
                     run_db(lambda: sb_authed_local.rpc("record_word_results_bulk", {"p_items": items}).execute())
                 st.session_state.stats_saved_this_attempt = True
             except Exception as e:
-                if show_post_ui and is_admin():
-                    st.error("❌ 단어 통계(bulk) 저장 실패 (RPC/정책 확인)")
-                    st.exception(e)
+                if show_post_ui:
+                    st.warning("단어 결과 통계 저장(rpc)에 실패했습니다. RPC 함수/권한/RLS 확인 필요")
+                    st.write(str(e))
 
         try:
             save_progress_to_db(sb_authed_local, user_id)
@@ -3036,7 +3031,9 @@ def build_quiz_from_word_keys(word_keys: list[str], qtype: str, pos_group: str) 
         return []
 
     df = df.sample(frac=1).reset_index(drop=True)
+    df = df.head(n)  # ✅ 최대 n문항만
     return [make_question(df.iloc[i], qtype, pool) for i in range(len(df))]
+
 
 # ============================================================
 # ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
