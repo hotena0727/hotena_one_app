@@ -574,25 +574,6 @@ def is_admin() -> bool:
     val = fetch_is_admin_from_db(sb_authed_local, u.id)
     st.session_state["is_admin_cached"] = val
     return bool(val)
-    
-def is_admin() -> bool:
-    cached = st.session_state.get("is_admin_cached")
-    if cached is not None:
-        return bool(cached)
-
-    u = st.session_state.get("user")
-    if u is None:
-        st.session_state["is_admin_cached"] = False
-        return False
-
-    sb_authed_local = get_authed_sb()
-    if sb_authed_local is None:
-        st.session_state["is_admin_cached"] = False
-        return False
-
-    val = fetch_is_admin_from_db(sb_authed_local, u.id)
-    st.session_state["is_admin_cached"] = val
-    return bool(val)
 
 def ensure_mastered_words_shape():
     if "mastered_words" not in st.session_state or not isinstance(st.session_state.mastered_words, dict):
@@ -659,6 +640,9 @@ def start_quiz_state(quiz_list: list, qtype: str, clear_wrongs: bool = True):
     st.session_state.saved_this_attempt = False
     st.session_state.stats_saved_this_attempt = False
     st.session_state.session_stats_applied_this_attempt = False
+    
+    # ✅ 추가: 무료 카운트 중복/누락 방지
+    st.session_state.free_limit_applied_this_attempt = False
 
     if clear_wrongs:
         st.session_state.wrong_list = []
@@ -744,13 +728,16 @@ def run_db(callable_fn):
             st.rerun()
         raise
 def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
+    # 이미 세션이 있으면 OK
     if not force and st.session_state.get("user") and st.session_state.get("access_token"):
         return True
 
     rt = cookies.get("refresh_token")
     at = cookies.get("access_token")
 
+    # 1) refresh_token 우선
     if rt:
+        refreshed = None
         try:
             refreshed = sb.auth.refresh_session(rt)
         except Exception:
@@ -758,32 +745,32 @@ def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
                 refreshed = sb.auth.refresh_session({"refresh_token": rt})
             except Exception:
                 refreshed = None
-            
-            if refreshed and refreshed.session and refreshed.session.access_token:
-                st.session_state.user = refreshed.user
-                st.session_state.access_token = refreshed.session.access_token
-                st.session_state.refresh_token = refreshed.session.refresh_token
 
-                u_email = getattr(refreshed.user, "email", None)
-                if u_email:
-                    st.session_state["login_email"] = u_email.strip()
+        if refreshed and getattr(refreshed, "session", None) and getattr(refreshed.session, "access_token", None):
+            st.session_state.user = refreshed.user
+            st.session_state.access_token = refreshed.session.access_token
+            st.session_state.refresh_token = refreshed.session.refresh_token
 
-                cookies["access_token"] = refreshed.session.access_token
-                cookies["refresh_token"] = refreshed.session.refresh_token
-                cookies.save()
-                return True
-        except Exception:
-            pass
+            u_email = getattr(refreshed.user, "email", None)
+            if u_email:
+                st.session_state["login_email"] = u_email.strip()
 
+            cookies["access_token"] = refreshed.session.access_token
+            cookies["refresh_token"] = refreshed.session.refresh_token
+            cookies.save()
+            return True
+
+    # 2) access_token으로 유저 조회 시도
     if at:
         try:
             u = sb.auth.get_user(at)
-            user_obj = getattr(u, "user", None) or getattr(u, "data", None) or None
+            user_obj = getattr(u, "user", None) or getattr(u, "data", None)
             if user_obj:
                 st.session_state.user = user_obj
                 st.session_state.access_token = at
                 if rt:
                     st.session_state.refresh_token = rt
+
                 u_email = getattr(user_obj, "email", None)
                 if u_email:
                     st.session_state["login_email"] = u_email.strip()
