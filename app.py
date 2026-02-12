@@ -574,25 +574,6 @@ def is_admin() -> bool:
     val = fetch_is_admin_from_db(sb_authed_local, u.id)
     st.session_state["is_admin_cached"] = val
     return bool(val)
-    
-def is_admin() -> bool:
-    cached = st.session_state.get("is_admin_cached")
-    if cached is not None:
-        return bool(cached)
-
-    u = st.session_state.get("user")
-    if u is None:
-        st.session_state["is_admin_cached"] = False
-        return False
-
-    sb_authed_local = get_authed_sb()
-    if sb_authed_local is None:
-        st.session_state["is_admin_cached"] = False
-        return False
-
-    val = fetch_is_admin_from_db(sb_authed_local, u.id)
-    st.session_state["is_admin_cached"] = val
-    return bool(val)
 
 def ensure_mastered_words_shape():
     if "mastered_words" not in st.session_state or not isinstance(st.session_state.mastered_words, dict):
@@ -648,6 +629,9 @@ def sync_answers_from_widgets():
 def start_quiz_state(quiz_list: list, qtype: str, clear_wrongs: bool = True):
     st.session_state.quiz_version = int(st.session_state.get("quiz_version", 0)) + 1
     st.session_state.quiz_type = qtype
+
+    # ✅ 제출 카운트 중복 방지 플래그 초기화
+    st.session_state.free_limit_applied_this_attempt = False
 
     if not isinstance(quiz_list, list):
         quiz_list = []
@@ -744,13 +728,16 @@ def run_db(callable_fn):
             st.rerun()
         raise
 def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
+    # 이미 세션이 있으면 OK
     if not force and st.session_state.get("user") and st.session_state.get("access_token"):
         return True
 
     rt = cookies.get("refresh_token")
     at = cookies.get("access_token")
 
+    # 1) refresh_token 우선
     if rt:
+        refreshed = None
         try:
             refreshed = sb.auth.refresh_session(rt)
         except Exception:
@@ -758,23 +745,22 @@ def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
                 refreshed = sb.auth.refresh_session({"refresh_token": rt})
             except Exception:
                 refreshed = None
-            
-            if refreshed and refreshed.session and refreshed.session.access_token:
-                st.session_state.user = refreshed.user
-                st.session_state.access_token = refreshed.session.access_token
-                st.session_state.refresh_token = refreshed.session.refresh_token
 
-                u_email = getattr(refreshed.user, "email", None)
-                if u_email:
-                    st.session_state["login_email"] = u_email.strip()
+        if refreshed and getattr(refreshed, "session", None) and refreshed.session.access_token:
+            st.session_state.user = refreshed.user
+            st.session_state.access_token = refreshed.session.access_token
+            st.session_state.refresh_token = refreshed.session.refresh_token
 
-                cookies["access_token"] = refreshed.session.access_token
-                cookies["refresh_token"] = refreshed.session.refresh_token
-                cookies.save()
-                return True
-        except Exception:
-            pass
+            u_email = getattr(refreshed.user, "email", None)
+            if u_email:
+                st.session_state["login_email"] = u_email.strip()
 
+            cookies["access_token"] = refreshed.session.access_token
+            cookies["refresh_token"] = refreshed.session.refresh_token
+            cookies.save()
+            return True
+
+    # 2) access_token으로 유저 조회
     if at:
         try:
             u = sb.auth.get_user(at)
@@ -784,6 +770,7 @@ def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
                 st.session_state.access_token = at
                 if rt:
                     st.session_state.refresh_token = rt
+
                 u_email = getattr(user_obj, "email", None)
                 if u_email:
                     st.session_state["login_email"] = u_email.strip()
@@ -2914,10 +2901,9 @@ if st.session_state.submitted:
             pass
 
 # ============================================================
-# ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
-#   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
+# ✅ 제출 후: 오답 노트 (카드형 + 품사그룹별 expander)
 # ============================================================
-if st.session_state.wrong_list:
+if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
     st.subheader("❌ 오답 노트")
 
     def _s(v):
@@ -2931,13 +2917,14 @@ if st.session_state.wrong_list:
                  .replace('"', "&quot;")
                  .replace("'", "&#39;"))
 
-    STYLE = """
+    st.markdown(
+        """
 <style>
 .wrong-card{
   border: 1px solid rgba(120,120,120,0.25);
   border-radius: 16px;
   padding: 14px 14px;
-  margin-bottom: 10px;
+  margin: 10px 0;
   background: rgba(255,255,255,0.02);
 }
 .wrong-top{
@@ -2967,7 +2954,7 @@ if st.session_state.wrong_list:
   padding: 5px 9px;
   border-radius: 999px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 800;
   border: 1px solid rgba(120,120,120,0.25);
   background: rgba(255,255,255,0.03);
   white-space: nowrap;
@@ -2978,119 +2965,77 @@ if st.session_state.wrong_list:
   gap:10px;
   margin-top:6px;
   font-size: 13px;
+  line-height: 1.5;
 }
-.ans-k{ opacity: 0.7; font-weight: 700; }
+.ans-k{ opacity: 0.72; font-weight: 800; }
+.smallhint{ opacity:.72; font-size:12px; margin-top:10px; }
 </style>
-"""
+""",
+        unsafe_allow_html=True,
+    )
 
-    cards = []
-    for w in st.session_state.wrong_list:
-        no = _s(w.get("No"))
-        qtext = _s(w.get("문제"))
-        picked = _s(w.get("내 답"))
-        correct = _s(w.get("정답"))
-        word = _s(w.get("단어"))
-        reading = _s(w.get("읽기"))
-        meaning = _s(w.get("뜻"))
-        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
-        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
+    wrongs = st.session_state.wrong_list
 
-        card_html = f"""
+    # ✅ 그룹별로 묶기 (없으면 current_pos_group로 fallback)
+    grouped: dict[str, list[dict]] = {}
+    for w in wrongs:
+        g = str(w.get("품사") or st.session_state.get("pos_group") or "noun").strip().lower()
+        grouped.setdefault(g, []).append(w)
+
+    # ✅ 표시 순서: 현재 선택 품사 먼저, 그 다음 나머지
+    current_g = str(st.session_state.get("pos_group", "noun")).strip().lower()
+    order = [current_g] + [k for k in grouped.keys() if k != current_g]
+
+    for g in order:
+        items = grouped.get(g, [])
+        if not items:
+            continue
+
+        title = POS_LABEL_MAP.get(g, g)
+        with st.expander(f"📂 {title} 오답 ({len(items)}개)", expanded=(g == current_g)):
+            for w in items:
+                no = _esc(w.get("No"))
+                qtext = _esc(w.get("문제"))
+                mine = _esc(w.get("내 답"))
+                ans = _esc(w.get("정답"))
+                word = _esc(w.get("단어"))
+                reading = _esc(w.get("읽기"))
+                meaning = _esc(w.get("뜻"))
+                qt = _esc(quiz_label_map.get(w.get("유형"), w.get("유형")))
+                # 태그: 유형
+                tag_html = f"<span class='tag'>유형: {qt}</span>"
+
+                st.markdown(
+                    f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
       <div class="wrong-left">
-        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
-        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
+        <div class="wrong-title">#{no} {qtext}</div>
+        <div class="wrong-sub">{tag_html}</div>
       </div>
-      <div class="tag">오답</div>
+      <div class="tag">{word}</div>
     </div>
 
-    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
-    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
-    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
-    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
+    <div class="ans-row"><div class="ans-k">내 답</div><div>{mine}</div></div>
+    <div class="ans-row"><div class="ans-k">정답</div><div><b>{ans}</b></div></div>
+    <div class="ans-row"><div class="ans-k">읽기</div><div>{reading}</div></div>
+    <div class="ans-row"><div class="ans-k">뜻</div><div>{meaning}</div></div>
   </div>
 </div>
-"""
-        cards.append(card_html)
+""",
+                    unsafe_allow_html=True,
+                )
 
-    def _render_cards(card_list: list[str], max_height: int = 650):
-        if not card_list:
-            return
-        html_block = "".join(card_list)
-        h = 190 * len(card_list) + 10
-        h = max(190, min(h, max_height))
+                # ✅ PRO면 오답에서도 발음 버튼 제공(뜻문제일 때 유용)
+                if is_pro():
+                    tts_text = (w.get("읽기") or "").strip()
+                    if tts_text:
+                        render_pronounce_button(tts_text, uid=f"wrong_{g}_{no}", label="🔊 발음")
 
-        components.html(
-            textwrap.dedent(f"""
-{STYLE}
-{html_block}
-"""),
-            height=h,
-        )
+            st.markdown("<div class='smallhint jp'>오답은 ‘마이페이지 → 틀린 문제만 다시 풀기’로 바로 복습하면 가장 빠르게 줄어듭니다 🙂</div>",
+                        unsafe_allow_html=True)
 
-    MAX_PREVIEW = 3
-    preview_cards = cards[:MAX_PREVIEW]
-    rest_cards = cards[MAX_PREVIEW:]
-
-    _render_cards(preview_cards, max_height=650)
-
-    if rest_cards:
-        with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
-            _render_cards(rest_cards, max_height=900)
-
-# ============================================================
-# ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
-# ============================================================
-if st.session_state.get("submitted", False):
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
-    cA, cB = st.columns(2)
-    with cA:
-        locked = free_limit_reached()
-
-        if locked:
-            st.caption("🔒 오늘 무료 한도(30문항)를 모두 사용했어요.")
-
-        if st.button(
-            "✅ 다음 10문항 시작하기",
-            type="primary",
-            use_container_width=True,
-            key="btn_next_10",
-            disabled=locked
-        ):
-            if locked:
-                st.stop()
-
-            clear_question_widget_keys()
-            new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
-            start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
-            st.session_state.free_limit_applied_this_attempt = False
-            mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
-            st.session_state["_scroll_top_once"] = True
-            st.rerun()
-
-    with cB:
-        # 오답이 있을 때만 활성화(없으면 disabled)
-        has_wrongs = bool(st.session_state.get("wrong_list"))
-        pro_only_disabled = (not is_pro()) or (not has_wrongs)
-        if st.button(
-            "❌ 틀린 문제만 다시 풀기",
-            use_container_width=True,
-            disabled=pro_only_disabled,
-            key="btn_retry_wrongs_bottom_global"
-        ):
-            clear_question_widget_keys()
-            retry_quiz = build_quiz_from_wrongs(
-                st.session_state.wrong_list,
-                st.session_state.quiz_type,
-                st.session_state.pos_group
-            )
-            start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
-            st.session_state["_scroll_top_once"] = True
-            st.rerun()
-
-    show_naver_talk = (SHOW_NAVER_TALK == "N") or is_admin()
-    if show_naver_talk:
+    # ✅ 제출 후에만 네이버톡 노출 옵션
+    if SHOW_NAVER_TALK == "Y":
         render_naver_talk()
