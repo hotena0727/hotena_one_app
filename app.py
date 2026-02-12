@@ -2921,115 +2921,182 @@ if st.session_state.submitted:
         st.markdown(
             """
 <style>
-.wrong-card{
-  border:1px solid rgba(120,120,120,0.22);
-  border-radius:18px;
-  padding:14px 14px;
-  margin:10px 0;
-  background: rgba(255,255,255,0.02);
-}
-.wrong-top{
   display:flex;
-  align-items:center;
+  align-items:baseline;
   justify-content:space-between;
   gap:10px;
 }
 .wrong-no{
   font-weight:900;
   font-size:16px;
+  white-space:nowrap;
 }
-.wrong-pill{
+.wrong-q{
+  font-size:13px;
+  opacity:.82;
+  line-height:1.55;
+}
+.wrong-badge{
   border:1px solid rgba(120,120,120,0.25);
+  background: rgba(255,255,255,0.03);
   border-radius:999px;
   padding:6px 10px;
   font-size:12px;
   font-weight:900;
   white-space:nowrap;
-  opacity:.9;
 }
-.wrong-q{ margin-top:10px; font-weight:800; font-size:14px; line-height:1.45; }
-.wrong-row{ margin-top:8px; font-size:13px; line-height:1.55; opacity:.92; }
-.wrong-row b{ font-weight:900; }
+.wrong-row{
+  margin-top:10px;
+  display:grid;
+  grid-template-columns: 1fr;
+  gap:8px;
+}
+.wrong-kv{
+  display:flex;
+  gap:10px;
+  align-items:baseline;
+  flex-wrap:wrap;
+}
+.wrong-kv b{ font-weight:900; }
+.wrong-kv span{ opacity:.86; font-size:13px; }
+.wrong-ex{
+  margin-top:6px;
+  font-size:13px;
+  line-height:1.6;
+  opacity:.92;
+}
+.wrong-ex .kr{ opacity:.78; }
 </style>
 """,
             unsafe_allow_html=True,
         )
 
-        # Free면 앞에서 10개로 잘려있음(이미 적용)
-        for w in st.session_state.get("wrong_list", []):
-            no = w.get("No", "")
-            qtxt = _esc_html(w.get("문제", ""))
+        # ✅ 카드 1개 렌더러
+        def render_wrong_card(w: dict):
+            no = int(w.get("No", 0) or 0)
+            qtext = _esc_html(w.get("문제", ""))
             mya = _esc_html(w.get("내 답", ""))
             ans = _esc_html(w.get("정답", ""))
-            word = _esc_html(w.get("단어", ""))
-            rd = _esc_html(w.get("읽기", ""))
-            mn = _esc_html(w.get("뜻", ""))
+            jp  = _esc_html(w.get("단어", ""))
+            rd  = _esc_html(w.get("읽기", ""))
+            mn  = _esc_html(w.get("뜻", ""))
+            g   = _esc_html(POS_LABEL_MAP.get(str(w.get("품사","")), str(w.get("품사",""))))
+            qt  = _esc_html(quiz_label_map.get(str(w.get("유형","")), str(w.get("유형",""))))
+
+            # 예문(quiz에 들어있던 example을 매칭해서 보여주기)
+            exjp = ""
+            exkr = ""
+
+            # 현재 퀴즈에서 해당 단어 찾기
+            try:
+                for q in (st.session_state.get("quiz") or []):
+                    if str(q.get("jp_word","")).strip() == str(w.get("단어","")).strip():
+                        exjp = str(q.get("example_jp","")).strip()
+                        exkr = str(q.get("example_kr","")).strip()
+                        break
+            except Exception:
+                pass
+
+            exjp_h = _esc_html(exjp)
+            exkr_h = _esc_html(exkr)
 
             st.markdown(
                 f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
-      <div class="wrong-no">Q{no}</div>
-      <div class="wrong-pill">오답</div>
+      <div style="min-width:0;">
+        <div class="wrong-no">#{no}</div>
+        <div class="wrong-q">{qtext}</div>
+      </div>
+      <div class="wrong-badge">{g} · {qt}</div>
     </div>
 
-    <div class="wrong-q">{qtxt}</div>
+    <div class="wrong-row">
+      <div class="wrong-kv"><b>내 답</b><span>{mya}</span></div>
+      <div class="wrong-kv"><b>정답</b><span>{ans}</span></div>
+      <div class="wrong-kv"><b>단어</b><span>{jp}　({rd})</span></div>
+      <div class="wrong-kv"><b>뜻</b><span>{mn}</span></div>
+    </div>
 
-    <div class="wrong-row"><b>내 답</b> : {mya}</div>
-    <div class="wrong-row"><b>정답</b> : {ans}</div>
-
-    <div class="wrong-row"><b>단어</b> : {word}</div>
-    <div class="wrong-row"><b>읽기</b> : {rd}</div>
-    <div class="wrong-row"><b>뜻</b> : {mn}</div>
+    {"<div class='wrong-ex'><b>예문</b><br/>"+exjp_h+"<br/><span class='kr'>"+exkr_h+"</span></div>" if (exjp_h or exkr_h) else ""}
   </div>
 </div>
 """,
                 unsafe_allow_html=True,
             )
+
+        # ✅ Free 제한 반영된 wrong_list가 st.session_state.wrong_list에 들어있음
+        for w in (st.session_state.get("wrong_list") or []):
+            render_wrong_card(w)
+
     else:
-        st.info("완벽합니다. 오답이 없어요 ✅")
+        st.success("🎉 오답이 없습니다! 아주 좋아요.")
 
     # ============================================================
-    # ✅ 액션 버튼: 새 문제 / (PRO 전용) 오답만 다시 풀기
+    # ✅ Pro 게이트: 오답만 다시풀기 버튼 (마이페이지에도 있지만, 제출 직후에도 제공)
     # ============================================================
-    st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
+    ensure_plan_cached()
+    flags = st.session_state.get("flags", {})
+    can_retry = bool(flags.get("allow_retry_wrongs", False))
 
-    b1, b2 = st.columns(2)
-    with b1:
-        if st.button("🔄 새 문제(같은 설정)", use_container_width=True, key="btn_after_newquiz"):
+    st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+
+    cpost1, cpost2 = st.columns(2)
+    with cpost1:
+        if st.button("🔄 새 문제(같은 설정)", use_container_width=True, key="btn_after_new"):
             clear_question_widget_keys()
-            new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+            st.session_state.submitted = False
+            st.session_state.saved_this_attempt = False
+            st.session_state.stats_saved_this_attempt = False
+            st.session_state.session_stats_applied_this_attempt = False
+
+            new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group) or []
             start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
             mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
             st.session_state["_scroll_top_once"] = True
             st.rerun()
 
-    with b2:
-        ensure_plan_cached()
-        flags = st.session_state.get("flags", {})
-        if flags.get("allow_retry_wrongs", False):
-            if st.button("❌ 오답만 다시 풀기", type="primary", use_container_width=True, key="btn_after_retry_wrongs"):
-                clear_question_widget_keys()
-                quiz = build_quiz_from_wrongs(
-                    wrong_list=wrong_list,
-                    qtype=st.session_state.quiz_type,
-                    pos_group=st.session_state.pos_group,
-                )
-                start_quiz_state(quiz, st.session_state.quiz_type, clear_wrongs=True)
-                st.session_state["_scroll_top_once"] = True
-                st.rerun()
-        else:
-            st.caption("오답만 다시 풀기는 PRO에서 제공됩니다.")
+    with cpost2:
+        if st.button(
+            "❌ 틀린 문제만 다시 풀기",
+            use_container_width=True,
+            disabled=(not can_retry),
+            key="btn_after_retry_wrongs",
+        ):
+            if not can_retry:
+                st.warning("이 기능은 PRO 플랜에서 사용할 수 있어요.")
+                st.stop()
 
-    # ============================================================
-    # ✅ 네이버톡(옵션): 제출 후만
-    # ============================================================
+            clear_question_widget_keys()
+            st.session_state.submitted = False
+            st.session_state.saved_this_attempt = False
+            st.session_state.stats_saved_this_attempt = False
+            st.session_state.session_stats_applied_this_attempt = False
+
+            quiz = build_quiz_from_wrongs(
+                wrong_list=st.session_state.get("wrong_list", []),
+                qtype=st.session_state.get("quiz_type", "meaning"),
+                pos_group=st.session_state.get("pos_group", "noun"),
+            )
+            start_quiz_state(quiz, st.session_state.get("quiz_type", "meaning"), clear_wrongs=True)
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+
+    if not can_retry:
+        st.caption("PRO 플랜이면 ‘틀린 문제만 다시 풀기’가 열립니다.")
+
+    # 제출 후 네이버톡 배너(원하면 여기만 유지)
     if SHOW_NAVER_TALK == "Y":
         render_naver_talk()
 
-    # ============================================================
-    # ✅ 제출 후에는 여기서 멈춤(이하 UI 중복 방지)
-    # ============================================================
     st.stop()
 
+# ============================================================
+# ✅ (안전) 제출 전에는 네이버톡/후반 UI를 안 띄움
+# ============================================================
+
+# ============================================================
+# ✅ 하단 안내 (선택)
+# ============================================================
+st.caption("※ 이 앱은 ‘왕초보 루틴(하루 10문항)’에 최적화되어 있습니다.")
