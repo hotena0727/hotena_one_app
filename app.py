@@ -2817,62 +2817,20 @@ if st.session_state.submitted:
 # ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
 #   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
 # ============================================================
-
 if st.session_state.wrong_list:
     st.subheader("❌ 오답 노트")
 
     def _s(v):
         return "" if v is None else str(v)
 
-    cards = []
-    for w in st.session_state.wrong_list:
-        no = _s(w.get("No"))
-        qtext = _s(w.get("문제"))
-        picked = _s(w.get("내 답"))
-        correct = _s(w.get("정답"))
-        word = _s(w.get("단어"))
-        reading = _s(w.get("읽기"))
-        meaning = _s(w.get("뜻"))
-        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
-        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
+    def _esc(x: str) -> str:
+        x = _s(x)
+        return (x.replace("&", "&amp;")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;")
+                 .replace('"', "&quot;")
+                 .replace("'", "&#39;"))
 
-        # ✅ HTML 안전처리(태그 깨짐/주입 방지)
-        def _esc(x: str) -> str:
-            x = _s(x)
-            return (x.replace("&", "&amp;")
-                     .replace("<", "&lt;")
-                     .replace(">", "&gt;")
-                     .replace('"', "&quot;")
-                     .replace("'", "&#39;"))
-
-        card_html = f"""
-<div class="jp">
-  <div class="wrong-card">
-    <div class="wrong-top">
-      <div class="wrong-left">
-        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
-        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
-      </div>
-      <div class="tag">오답</div>
-    </div>
-
-    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
-    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
-    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
-    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
-  </div>
-</div>
-"""
-        cards.append(card_html)
-
-    all_cards_html = "".join(cards)
-
-    # 카드 높이(대략) 계산: 카드 1개당 190~220px 정도면 안정적
-    height = 190 * len(cards) + 10   # ✅ 여백 최소화
-    height = max(190, min(height, 1200))
-
-
-        # ✅ 공통 스타일 (preview / more 에서 둘 다 써야 하므로 문자열로 분리)
     STYLE = """
 <style>
 .wrong-card{
@@ -2925,32 +2883,59 @@ if st.session_state.wrong_list:
 </style>
 """
 
+    cards = []
+    for w in st.session_state.wrong_list:
+        no = _s(w.get("No"))
+        qtext = _s(w.get("문제"))
+        picked = _s(w.get("내 답"))
+        correct = _s(w.get("정답"))
+        word = _s(w.get("단어"))
+        reading = _s(w.get("읽기"))
+        meaning = _s(w.get("뜻"))
+        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
+        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
+
+        card_html = f"""
+<div class="jp">
+  <div class="wrong-card">
+    <div class="wrong-top">
+      <div class="wrong-left">
+        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
+        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
+      </div>
+      <div class="tag">오답</div>
+    </div>
+
+    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
+    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
+    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
+    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
+  </div>
+</div>
+"""
+        cards.append(card_html)
+
     def _render_cards(card_list: list[str], max_height: int = 650):
-        """카드 리스트를 components.html로 렌더"""
         if not card_list:
             return
-        html = "".join(card_list)
-
-        # 카드 1장당 높이(대략)
+        html_block = "".join(card_list)
         h = 190 * len(card_list) + 10
         h = max(190, min(h, max_height))
 
         components.html(
             textwrap.dedent(f"""
 {STYLE}
-{html}
+{html_block}
 """),
             height=h,
         )
 
-    # ✅ 3개만 먼저 보여주기
     MAX_PREVIEW = 3
     preview_cards = cards[:MAX_PREVIEW]
     rest_cards = cards[MAX_PREVIEW:]
 
     _render_cards(preview_cards, max_height=650)
 
-    # ✅ 3개 초과면 "더 보기"로 나머지 펼치기
     if rest_cards:
         with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
             _render_cards(rest_cards, max_height=900)
