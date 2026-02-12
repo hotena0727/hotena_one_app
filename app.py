@@ -688,6 +688,7 @@ def clear_auth_everywhere():
         "mastery_banner_shown", "mastery_done",
         "pos_group",
         "other_pos_selected",
+        "plan_cached",
     ]:
         st.session_state.pop(k, None)
 
@@ -836,15 +837,38 @@ def fetch_all_attempts_admin(sb_authed, limit=500):
         .execute()
     )
 
-def fetch_is_admin_from_db(sb_authed, user_id):
+def fetch_plan_from_db(sb_authed, user_id) -> str:
     try:
-        res = sb_authed.table("profiles").select("is_admin").eq("id", user_id).single().execute()
-        if res and res.data and "is_admin" in res.data:
-            return bool(res.data["is_admin"])
+        res = sb_authed.table("profiles").select("plan").eq("id", user_id).single().execute()
+        if res and res.data and "plan" in res.data:
+            v = str(res.data["plan"] or "free").strip().lower()
+            return v if v in ("free", "pro") else "free"
     except Exception:
         pass
-    return False
+    return "free"
 
+def get_user_plan() -> str:
+    cached = st.session_state.get("plan_cached")
+    if cached in ("free", "pro"):
+        return cached
+
+    u = st.session_state.get("user")
+    if u is None:
+        st.session_state["plan_cached"] = "free"
+        return "free"
+
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is None:
+        st.session_state["plan_cached"] = "free"
+        return "free"
+
+    plan = fetch_plan_from_db(sb_authed_local, u.id)
+    st.session_state["plan_cached"] = plan
+    return plan
+
+def is_pro() -> bool:
+    return get_user_plan() == "pro"
+    
 def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: str, pos: str) -> list[dict]:
     items = []
     for idx, q in enumerate(quiz):
@@ -2309,8 +2333,33 @@ if st.session_state.page == "my":
 # ============================================================
 # ✅ Quiz Page
 # ============================================================
+def render_plan_banner():
+    plan = get_user_plan()
+    if plan == "pro":
+        st.success("✨ PRO 이용 중입니다.")
+        return
+
+    st.info("🔒 일부 기능은 PRO에서 열립니다. (예: 오답만 다시풀기, 발음 버튼, 패턴카드 확장 등)")
+    if st.button("💎 PRO 신청/문의", use_container_width=True, key="btn_go_pro"):
+        st.session_state["_scroll_top_once"] = True
+        st.markdown(f"<meta http-equiv='refresh' content='0;url={NAVER_TALK_URL}'>", unsafe_allow_html=True)
+
+# ✅ 호출은 정의 아래에서
 render_topcard()
+render_plan_banner()
 render_sound_toggle()
+
+def render_plan_banner():
+    plan = get_user_plan()
+    if plan == "pro":
+        st.success("✨ PRO 이용 중입니다.")
+        return
+
+    st.info("🔒 일부 기능은 PRO에서 열립니다. (예: 오답만 다시풀기, 발음 버튼, 패턴카드 확장 등)")
+    # 여기 버튼은 '결제 링크'나 '상담 링크'로 연결
+    if st.button("💎 PRO 신청/문의", use_container_width=True, key="btn_go_pro"):
+        st.session_state["_scroll_top_once"] = True
+        st.markdown(f"<meta http-equiv='refresh' content='0;url={NAVER_TALK_URL}'>", unsafe_allow_html=True)
 
 streak = st.session_state.get("streak_count")
 did_today = st.session_state.get("did_attend_today")
@@ -2481,7 +2530,12 @@ st.markdown("</div>", unsafe_allow_html=True)
 
 # ✅ 필수패턴(카드)
 with st.expander("📌 필수패턴 (카드로 빠르게 익히기)", expanded=False):
-    render_pattern_cards()
+    if is_pro():
+        render_pattern_cards()
+    else:
+        st.caption("🔒 PRO에서 품사별 패턴 카드 전체가 열립니다.")
+        # 무료 체험: 1장만
+        render_pattern_cards()
 
 st.markdown('<div class="tight-divider">', unsafe_allow_html=True)
 st.divider()
@@ -2612,7 +2666,11 @@ for idx, q in enumerate(st.session_state.quiz):
 
         # 원하면 "소리 ON일 때만" 보이게 할 수도 있어요.
         # if st.session_state.get("sound_enabled", False):
-        render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
+        if is_pro():
+            render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
+        else:
+            # 무료는 버튼 대신 힌트만(너무 방해되면 이 줄도 빼도 됨)
+            st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
 
 
     
@@ -2960,7 +3018,13 @@ if st.session_state.get("submitted", False):
     with cB:
         # 오답이 있을 때만 활성화(없으면 disabled)
         has_wrongs = bool(st.session_state.get("wrong_list"))
-        if st.button("❌ 틀린 문제만 다시 풀기", use_container_width=True, disabled=not has_wrongs, key="btn_retry_wrongs_bottom_global"):
+        pro_only_disabled = (not is_pro()) or (not has_wrongs)
+        if st.button(
+            "❌ 틀린 문제만 다시 풀기",
+            use_container_width=True,
+            disabled=pro_only_disabled,
+            key="btn_retry_wrongs_bottom_global"
+        ):
             clear_question_widget_keys()
             retry_quiz = build_quiz_from_wrongs(
                 st.session_state.wrong_list,
