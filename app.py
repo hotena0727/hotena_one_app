@@ -1657,17 +1657,43 @@ def _safe_suffix_hira(x: str, n: int) -> str:
     xh = _to_hira(_nfkc_str(x))
     return xh[-n:] if len(xh) >= n else xh
 
-def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
+def _pick_reading_wrongs(
+    candidates: list[str],
+    correct: str,
+    pos: str,
+    jp_word: str = "",
+    k: int = 3
+) -> list[str]:
     correct_nf = _nfkc_str(correct)
-    cands = _uniq([_nfkc_str(c) for c in candidates if _nfkc_str(c) and _nfkc_str(c) != correct_nf])
+
+    # ✅ 후보 정리(정규화/중복제거/정답 제외)
+    cands = _uniq([
+        _nfkc_str(c)
+        for c in candidates
+        if _nfkc_str(c) and _nfkc_str(c) != correct_nf
+    ])
+
+    k = int(k)
     if len(cands) < k:
         return []
 
     correct_h = _to_hira(correct_nf)
 
-    okuri = _jp_okurigana_suffix(jp_word)
-    okuri = _to_hira(okuri)
+    # ✅ [강제] する동사면 보기(오답)도 전부 ～する로 제한 (+필터 후 부족 체크)
+    if correct_h.endswith("する"):
+        cands = [c for c in cands if _to_hira(c).endswith("する")]
+        if len(cands) < k:
+            return []
 
+    # ✅ [강제] い형용사면 오답도 전부 ～い로 제한
+    # - 단, 정답 자체가 い로 끝날 때만 강제(いい 등 표기 흔들림 방지)
+    if str(pos).strip().lower() == "adj_i" and correct_h.endswith("い"):
+        cands = [c for c in cands if _to_hira(c).endswith("い")]
+        if len(cands) < k:
+            return []
+
+    # ✅ 오쿠리가나 기반으로 "끝 2글자/1글자" 타겟 잡기
+    okuri = _to_hira(_jp_okurigana_suffix(jp_word))
     ok2 = okuri[-2:] if len(okuri) >= 2 else ""
     ok1 = okuri[-1:] if len(okuri) >= 1 else ""
 
@@ -1682,35 +1708,46 @@ def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word:
     def score(c: str) -> int:
         ch = _to_hira(c)
         sc = 0
+
+        # する 가산
         if want_suru:
             if ch.endswith("する"):
                 sc += 100
             else:
                 sc -= 50
+
+        # 끝 2글자/1글자 일치 가산
         if target2 and _safe_suffix_hira(ch, 2) == target2:
             sc += 60
         if target1 and _safe_suffix_hira(ch, 1) == target1:
             sc += 25
+
+        # 정답과 완전 동일(히라가나 기준)은 강하게 제외
         if ch == correct_h:
             sc -= 999
+
         return sc
 
     ranked = sorted(cands, key=lambda x: score(x), reverse=True)
 
-    same2 = [c for c in ranked if target2 and _safe_suffix_hira(c, 2) == target2]
-    same1 = [c for c in ranked if target1 and _safe_suffix_hira(c, 1) == target1]
+    # ✅ 우선순위: 끝 2글자 일치 → 끝 1글자 일치 → 나머지 상위
+    same2 = [c for c in ranked if target2 and _safe_suffix_hira(_to_hira(c), 2) == target2]
+    same1 = [c for c in ranked if target1 and _safe_suffix_hira(_to_hira(c), 1) == target1]
 
-    out = []
+    out: list[str] = []
+
     for c in same2:
         if c not in out:
             out.append(c)
         if len(out) == k:
             return out
+
     for c in same1:
         if c not in out:
             out.append(c)
         if len(out) == k:
             return out
+
     for c in ranked:
         if c not in out:
             out.append(c)
@@ -2978,6 +3015,57 @@ if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
 
     # ✅ 그룹별로 묶기 (없으면 current_pos_group로 fallback)
     grouped: dict[str, list[dict]] = {}
+    
+    # ✅ 그룹 키 결정: "품사" 필드가 있으면 그걸, 없으면 현재 pos_group
+    for w in wrongs:
+        gk = str(w.get("품사") or st.session_state.get("pos_group", "noun")).strip().lower()
+        grouped.setdefault(gk, []).append(w)
+
+    # ✅ 표시 순서(원하는 순서로)
+    order = ["noun", "verb", "adj_i", "adj_na", "other", "adv", "particle", "conj", "interj"]
+    def _ord(k): return order.index(k) if k in order else 999
+
+    for gk in sorted(grouped.keys(), key=_ord):
+        items = grouped[gk]
+        title = POS_LABEL_MAP.get(gk, OTHER_POS_LABEL_MAP.get(gk, gk))
+
+        with st.expander(f"📌 {title} 오답 ({len(items)}개)", expanded=True):
+            for it in items:
+                no = _esc(it.get("No", ""))
+                prob = _esc(it.get("문제", ""))
+                mya = _esc(it.get("내 답", ""))
+                cor = _esc(it.get("정답", ""))
+                word = _esc(it.get("단어", ""))
+                rd = _esc(it.get("읽기", ""))
+                mn = _esc(it.get("뜻", ""))
+                qtp = _esc(quiz_label_map.get(str(it.get("유형","")), str(it.get("유형",""))))
+
+                st.markdown(
+                    f"""
+<div class="jp">
+  <div class="wrong-card">
+    <div class="wrong-top">
+      <div class="wrong-left">
+        <div class="wrong-title">#{no} {word}</div>
+        <div class="wrong-sub">{prob}</div>
+      </div>
+      <div class="tag">{qtp}</div>
+    </div>
+
+    <div class="ans-row">
+      <div class="ans-k">내 답</div><div class="ans-v">{mya}</div>
+      <div class="ans-k">정답</div><div class="ans-v"><b>{cor}</b></div>
+      <div class="ans-k">읽기</div><div class="ans-v">{rd}</div>
+      <div class="ans-k">뜻</div><div class="ans-v">{mn}</div>
+    </div>
+
+    <div class="smallhint">👉 이 단어는 마이페이지에서 ‘틀린 문제만 다시 풀기’로 바로 복습할 수 있어요.</div>
+  </div>
+</div>
+""",
+                    unsafe_allow_html=True,
+                )
+                
     for w in wrongs:
         g = str(w.get("품사") or st.session_state.get("pos_group") or "noun").strip().lower()
         grouped.setdefault(g, []).append(w)
