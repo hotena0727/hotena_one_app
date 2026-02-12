@@ -901,7 +901,9 @@ def get_user_plan() -> str:
     return plan
 
 def is_pro() -> bool:
-    return get_user_plan() == "pro"
+    # 예시: 로그인 유저 프로필에서 is_pro 가져오는 방식
+    p = st.session_state.get("profile") or {}
+    return bool(p.get("is_pro", False))
     
 def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: str, pos: str) -> list[dict]:
     items = []
@@ -2631,11 +2633,23 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ============================================================
 # ✅ 버튼: 새 문제 / 맞힌 단어 제외 초기화
 # ============================================================
+
+def should_lock_quiz() -> bool:
+    if is_pro():
+        return False
+    return False  # FREE 제한 없앴으면 잠금 없음
+
+locked = should_lock_quiz()
+
 cbtn1, cbtn2 = st.columns(2)
 
 with cbtn1:
-    locked = free_limit_reached()
+    st.button("새 문제", disabled=locked, use_container_width=True)
 
+with cbtn2:
+    st.button("맞힌 단어 제외 초기화", disabled=locked, use_container_width=True)
+
+    # locked가 항상 False라면 이 캡션은 사실상 안 뜸(있어도 무방)
     if locked:
         st.caption("🔒 무료는 하루 30문항(3세트)까지입니다. PRO로 업그레이드하면 계속 풀 수 있어요.")
 
@@ -2645,38 +2659,10 @@ with cbtn1:
         key="btn_new_random_10",
         disabled=locked
     ):
-        # ✅ 서버에서도 2중 차단(그대로 유지 OK)
-        if free_limit_reached():
-            render_paywall()
-            st.stop()
-
         clear_question_widget_keys()
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
         mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
-        st.session_state["_scroll_top_once"] = True
-        st.rerun()
-
-with cbtn2:
-    if st.button("✅ 맞힌 단어 제외 초기화", use_container_width=True, key="btn_reset_mastered_current_type"):
-        ensure_mastered_words_shape()
-        k_now = mastery_key()
-        st.session_state.mastered_words[k_now] = set()
-        st.session_state.mastery_banner_shown[k_now] = False
-        st.session_state.mastery_done[k_now] = False
-        ensure_seen_words_shape()
-        st.session_state.seen_words[k_now] = set()
-
-
-        # ✅ 제한 그룹이면 quiz_type 방어
-        if str(st.session_state.get("pos_group","noun")).lower().strip() in POS_ONLY_2TYPES and st.session_state.quiz_type == "reading":
-            st.session_state.quiz_type = "meaning"
-
-        clear_question_widget_keys()
-        new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
-        start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
-
-        st.success(f"초기화 완료 (품사: {POS_LABEL_MAP.get(st.session_state.pos_group, st.session_state.pos_group)} / 유형: {quiz_label_map[st.session_state.quiz_type]})")
         st.session_state["_scroll_top_once"] = True
         st.rerun()
 
