@@ -1846,7 +1846,7 @@ def make_question(row: pd.Series, qtype: str, pool: pd.DataFrame) -> dict:
 
 def build_quiz(qtype: str, pos_group: str) -> list[dict]:
     # ✅ 퀴즈 길이(플랜 제한 반영)
-    n = int(st.session_state.get("quiz_len", DEFAULT_N) or DEFAULT_N)
+    n = int(st.session_state.get("quiz_len", 10) or DEFAULT_N)
 
     # ✅ Free면 강제 10
     flags = st.session_state.get("flags", {})
