@@ -2631,8 +2631,7 @@ with cbtn1:
     locked = free_limit_reached()
 
     if locked:
-        st.warning("무료는 하루 30문항(3세트)까지입니다. 더 풀려면 PRO가 필요합니다.")
-        st.stop()
+        st.caption("🔒 무료는 하루 30문항(3세트)까지입니다. PRO로 업그레이드하면 계속 풀 수 있어요.")
 
     if st.button(
         "🔄 새 문제(랜덤 10문항)",
@@ -2640,14 +2639,9 @@ with cbtn1:
         key="btn_new_random_10",
         disabled=locked
     ):
-        # ✅ 서버에서도 2중 차단
+        # ✅ 서버에서도 2중 차단(그대로 유지 OK)
         if free_limit_reached():
             st.stop()
-
-        k_now = mastery_key()
-        if st.session_state.get("mastery_done", {}).get(k_now, False):
-            st.session_state["_scroll_top_once"] = True
-            st.rerun()
 
         clear_question_widget_keys()
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
@@ -2692,14 +2686,15 @@ if "quiz" not in st.session_state or not isinstance(st.session_state.quiz, list)
 is_mastered_done = bool(st.session_state.get("mastery_done", {}).get(k_now, False))
 if (not is_mastered_done) and len(st.session_state.quiz) == 0:
     if free_limit_reached():
-        st.warning("무료는 하루 30문항(3세트)까지입니다. 더 풀려면 PRO가 필요합니다.")
+        st.warning("무료는 하루 30문항(3세트)까지입니다. 오늘은 여기까지! 🙂")
+        st.caption("PRO로 업그레이드하면 계속 풀 수 있어요.")
+        # ✅ stop은 OK (여긴 '퀴즈 생성' 자체를 막는 게 목적)
         st.stop()
 
     clear_question_widget_keys()
     new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group) or []
     start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
     mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
-    st.session_state["_scroll_top_once"] = True
 
 if len(st.session_state.quiz) == 0:
     k_now = mastery_key()
@@ -3054,6 +3049,9 @@ if st.session_state.get("submitted", False):
     cA, cB = st.columns(2)
     with cA:
         locked = free_limit_reached()
+
+        if locked:
+            st.caption("🔒 오늘 무료 한도(30문항)를 모두 사용했어요.")
 
         if st.button(
             "✅ 다음 10문항 시작하기",
