@@ -574,6 +574,25 @@ def is_admin() -> bool:
     val = fetch_is_admin_from_db(sb_authed_local, u.id)
     st.session_state["is_admin_cached"] = val
     return bool(val)
+    
+def is_admin() -> bool:
+    cached = st.session_state.get("is_admin_cached")
+    if cached is not None:
+        return bool(cached)
+
+    u = st.session_state.get("user")
+    if u is None:
+        st.session_state["is_admin_cached"] = False
+        return False
+
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is None:
+        st.session_state["is_admin_cached"] = False
+        return False
+
+    val = fetch_is_admin_from_db(sb_authed_local, u.id)
+    st.session_state["is_admin_cached"] = val
+    return bool(val)
 
 def ensure_mastered_words_shape():
     if "mastered_words" not in st.session_state or not isinstance(st.session_state.mastered_words, dict):
@@ -629,9 +648,6 @@ def sync_answers_from_widgets():
 def start_quiz_state(quiz_list: list, qtype: str, clear_wrongs: bool = True):
     st.session_state.quiz_version = int(st.session_state.get("quiz_version", 0)) + 1
     st.session_state.quiz_type = qtype
-
-    # ✅ 제출 카운트 중복 방지 플래그 초기화
-    st.session_state.free_limit_applied_this_attempt = False
 
     if not isinstance(quiz_list, list):
         quiz_list = []
@@ -728,16 +744,13 @@ def run_db(callable_fn):
             st.rerun()
         raise
 def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
-    # 이미 세션이 있으면 OK
     if not force and st.session_state.get("user") and st.session_state.get("access_token"):
         return True
 
     rt = cookies.get("refresh_token")
     at = cookies.get("access_token")
 
-    # 1) refresh_token 우선
     if rt:
-        refreshed = None
         try:
             refreshed = sb.auth.refresh_session(rt)
         except Exception:
@@ -745,22 +758,23 @@ def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
                 refreshed = sb.auth.refresh_session({"refresh_token": rt})
             except Exception:
                 refreshed = None
+            
+            if refreshed and refreshed.session and refreshed.session.access_token:
+                st.session_state.user = refreshed.user
+                st.session_state.access_token = refreshed.session.access_token
+                st.session_state.refresh_token = refreshed.session.refresh_token
 
-        if refreshed and getattr(refreshed, "session", None) and refreshed.session.access_token:
-            st.session_state.user = refreshed.user
-            st.session_state.access_token = refreshed.session.access_token
-            st.session_state.refresh_token = refreshed.session.refresh_token
+                u_email = getattr(refreshed.user, "email", None)
+                if u_email:
+                    st.session_state["login_email"] = u_email.strip()
 
-            u_email = getattr(refreshed.user, "email", None)
-            if u_email:
-                st.session_state["login_email"] = u_email.strip()
+                cookies["access_token"] = refreshed.session.access_token
+                cookies["refresh_token"] = refreshed.session.refresh_token
+                cookies.save()
+                return True
+        except Exception:
+            pass
 
-            cookies["access_token"] = refreshed.session.access_token
-            cookies["refresh_token"] = refreshed.session.refresh_token
-            cookies.save()
-            return True
-
-    # 2) access_token으로 유저 조회
     if at:
         try:
             u = sb.auth.get_user(at)
@@ -770,7 +784,6 @@ def refresh_session_from_cookie_if_needed(force: bool = False) -> bool:
                 st.session_state.access_token = at
                 if rt:
                     st.session_state.refresh_token = rt
-
                 u_email = getattr(user_obj, "email", None)
                 if u_email:
                     st.session_state["login_email"] = u_email.strip()
@@ -1657,43 +1670,17 @@ def _safe_suffix_hira(x: str, n: int) -> str:
     xh = _to_hira(_nfkc_str(x))
     return xh[-n:] if len(xh) >= n else xh
 
-def _pick_reading_wrongs(
-    candidates: list[str],
-    correct: str,
-    pos: str,
-    jp_word: str = "",
-    k: int = 3
-) -> list[str]:
+def _pick_reading_wrongs(candidates: list[str], correct: str, pos: str, jp_word: str = "", k: int = 3) -> list[str]:
     correct_nf = _nfkc_str(correct)
-
-    # ✅ 후보 정리(정규화/중복제거/정답 제외)
-    cands = _uniq([
-        _nfkc_str(c)
-        for c in candidates
-        if _nfkc_str(c) and _nfkc_str(c) != correct_nf
-    ])
-
-    k = int(k)
+    cands = _uniq([_nfkc_str(c) for c in candidates if _nfkc_str(c) and _nfkc_str(c) != correct_nf])
     if len(cands) < k:
         return []
 
     correct_h = _to_hira(correct_nf)
 
-    # ✅ [강제] する동사면 보기(오답)도 전부 ～する로 제한 (+필터 후 부족 체크)
-    if correct_h.endswith("する"):
-        cands = [c for c in cands if _to_hira(c).endswith("する")]
-        if len(cands) < k:
-            return []
+    okuri = _jp_okurigana_suffix(jp_word)
+    okuri = _to_hira(okuri)
 
-    # ✅ [강제] い형용사면 오답도 전부 ～い로 제한
-    # - 단, 정답 자체가 い로 끝날 때만 강제(いい 등 표기 흔들림 방지)
-    if str(pos).strip().lower() == "adj_i" and correct_h.endswith("い"):
-        cands = [c for c in cands if _to_hira(c).endswith("い")]
-        if len(cands) < k:
-            return []
-
-    # ✅ 오쿠리가나 기반으로 "끝 2글자/1글자" 타겟 잡기
-    okuri = _to_hira(_jp_okurigana_suffix(jp_word))
     ok2 = okuri[-2:] if len(okuri) >= 2 else ""
     ok1 = okuri[-1:] if len(okuri) >= 1 else ""
 
@@ -1708,46 +1695,35 @@ def _pick_reading_wrongs(
     def score(c: str) -> int:
         ch = _to_hira(c)
         sc = 0
-
-        # する 가산
         if want_suru:
             if ch.endswith("する"):
                 sc += 100
             else:
                 sc -= 50
-
-        # 끝 2글자/1글자 일치 가산
         if target2 and _safe_suffix_hira(ch, 2) == target2:
             sc += 60
         if target1 and _safe_suffix_hira(ch, 1) == target1:
             sc += 25
-
-        # 정답과 완전 동일(히라가나 기준)은 강하게 제외
         if ch == correct_h:
             sc -= 999
-
         return sc
 
     ranked = sorted(cands, key=lambda x: score(x), reverse=True)
 
-    # ✅ 우선순위: 끝 2글자 일치 → 끝 1글자 일치 → 나머지 상위
-    same2 = [c for c in ranked if target2 and _safe_suffix_hira(_to_hira(c), 2) == target2]
-    same1 = [c for c in ranked if target1 and _safe_suffix_hira(_to_hira(c), 1) == target1]
+    same2 = [c for c in ranked if target2 and _safe_suffix_hira(c, 2) == target2]
+    same1 = [c for c in ranked if target1 and _safe_suffix_hira(c, 1) == target1]
 
-    out: list[str] = []
-
+    out = []
     for c in same2:
         if c not in out:
             out.append(c)
         if len(out) == k:
             return out
-
     for c in same1:
         if c not in out:
             out.append(c)
         if len(out) == k:
             return out
-
     for c in ranked:
         if c not in out:
             out.append(c)
@@ -2936,248 +2912,185 @@ if st.session_state.submitted:
             save_progress_to_db(sb_authed_local, user_id)
         except Exception:
             pass
-# ============================================================
-# ✅ 제출 후: 오답 노트 (카드형 + pos_group별 expander)
-#   - HTML이 그대로 보이는 문제 해결(unsafe_allow_html=True)
-#   - 값은 html.escape로 안전 처리
-#   - 예문은 quiz에서 안전하게 매칭해서 붙이기(가능하면)
-# ============================================================
-# ⚠️ 이 블록이 동작하려면 파일 상단에 `import html` 이 필요합니다.
-# (이미 있다면 추가하지 마세요)
 
-if st.session_state.get("submitted") and st.session_state.get("wrong_list"):
+# ============================================================
+# ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
+#   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
+# ============================================================
+if st.session_state.wrong_list:
     st.subheader("❌ 오답 노트")
 
-    # ✅ CSS (1회만 주입)
-    st.markdown(
-        """
+    def _s(v):
+        return "" if v is None else str(v)
+
+    def _esc(x: str) -> str:
+        x = _s(x)
+        return (x.replace("&", "&amp;")
+                 .replace("<", "&lt;")
+                 .replace(">", "&gt;")
+                 .replace('"', "&quot;")
+                 .replace("'", "&#39;"))
+
+    STYLE = """
 <style>
 .wrong-card{
-  border:1px solid rgba(120,120,120,0.22);
-  border-radius:18px;
-  padding:14px 14px;
-  margin:10px 0;
+  border: 1px solid rgba(120,120,120,0.25);
+  border-radius: 16px;
+  padding: 14px 14px;
+  margin-bottom: 10px;
   background: rgba(255,255,255,0.02);
 }
 .wrong-top{
   display:flex;
-  justify-content:space-between;
-  gap:10px;
-  align-items:baseline;
-  margin-bottom:10px;
-}
-.wrong-no{ font-weight:900; font-size:16px; }
-.wrong-meta{ font-size:12px; opacity:.72; white-space:nowrap; }
-.wrong-q{ font-size:14px; line-height:1.55; margin: 6px 0 10px 0; opacity:.92; }
-
-.wrong-row{
-  display:flex;
+  align-items:flex-start;
   justify-content:space-between;
   gap:12px;
-  padding:8px 10px;
-  border-radius:12px;
-  border:1px solid rgba(120,120,120,0.16);
-  background: rgba(255,255,255,0.02);
-  margin:6px 0;
+  margin-bottom: 8px;
 }
-.wrong-k{ font-weight:900; font-size:13px; opacity:.8; }
-.wrong-v{ font-weight:900; font-size:14px; }
-.wrong-v b{ font-weight:900; }
-
-.wrong-mini{
-  display:grid;
-  grid-template-columns: 1fr;
+.wrong-left{ min-width:0; }
+.wrong-title{
+  font-weight: 900;
+  font-size: 15px;
+  margin-bottom: 4px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.wrong-sub{
+  opacity: 0.8;
+  font-size: 12px;
+}
+.tag{
+  display:inline-flex;
+  align-items:center;
   gap:6px;
-  margin-top:10px;
-  font-size:13px;
-  opacity:.85;
+  padding: 5px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(120,120,120,0.25);
+  background: rgba(255,255,255,0.03);
+  white-space: nowrap;
 }
-.wrong-mini .chip{
-  border:1px solid rgba(120,120,120,0.16);
-  border-radius:12px;
-  padding:8px 10px;
-  background: rgba(255,255,255,0.02);
+.ans-row{
+  display:grid;
+  grid-template-columns: 72px 1fr;
+  gap:10px;
+  margin-top:6px;
+  font-size: 13px;
 }
-
-.wrong-ex{
-  margin-top:10px;
-  padding:10px 10px;
-  border-radius:14px;
-  border:1px solid rgba(120,120,120,0.16);
-  background: rgba(255,255,255,0.02);
-  font-size:13px;
-  line-height:1.6;
-}
-.wrong-ex .jp{ font-weight:900; }
-.wrong-ex .kr{ opacity:.82; margin-top:4px; }
+.ans-k{ opacity: 0.7; font-weight: 700; }
 </style>
-""",
-        unsafe_allow_html=True,
-    )
+"""
 
-    # ------------------------------------------------------------
-    # ✅ HTML 안전 처리 유틸
-    #   - 화면에 그릴 때만 escape
-    #   - 내부 비교/매칭은 "raw 텍스트"로 통일해서 처리
-    # ------------------------------------------------------------
-    def _s(x) -> str:
-        """None -> '', 그 외 -> str"""
-        return "" if x is None else str(x)
-
-    def _raw(x) -> str:
-        """
-        DB/세션에 이미 escape된 문자열이 섞일 수 있으니,
-        비교/매칭용은 unescape로 통일.
-        """
-        try:
-            return html.unescape(_s(x)).strip()
-        except Exception:
-            return _s(x).strip()
-
-    def _h(x) -> str:
-        """렌더링용 escape"""
-        try:
-            return html.escape(_s(x))
-        except Exception:
-            return _s(x)
-
-    # ------------------------------------------------------------
-    # ✅ quiz에서 예문 빠르게 찾기: jp_word 기준 맵
-    # ------------------------------------------------------------
-    ex_map = {}
-    try:
-        for qq in (st.session_state.get("quiz") or []):
-            key = _raw(qq.get("jp_word", ""))
-            if key and key not in ex_map:
-                ex_map[key] = {
-                    "example_jp": _raw(qq.get("example_jp", "")),
-                    "example_kr": _raw(qq.get("example_kr", "")),
-                }
-    except Exception:
-        ex_map = {}
-
-    # ------------------------------------------------------------
-    # ✅ 카드 렌더
-    # ------------------------------------------------------------
-    def render_wrong_card(w: dict, idx: int = 0):
-        # raw(비교/버튼용)
-        no_raw = _raw(w.get("No", "")) or str(idx + 1)
-        qtxt_raw = _raw(w.get("문제", ""))
-        mya_raw = _raw(w.get("내 답", ""))
-        ans_raw = _raw(w.get("정답", ""))
-        word_raw = _raw(w.get("단어", ""))
-        yomi_raw = _raw(w.get("읽기", ""))
-        mean_raw = _raw(w.get("뜻", ""))
-        posg_raw = _raw(w.get("품사", "etc")) or "etc"
-        qtype_raw = _raw(w.get("유형", ""))
-
-        # 예문(저장되어 있으면 우선)
-        ex_jp_raw = _raw(w.get("예문JP", ""))
-        ex_kr_raw = _raw(w.get("예문KR", ""))
-
-        # 없으면 quiz에서 매칭해서 붙이기
-        if (not ex_jp_raw and not ex_kr_raw) and word_raw:
-            hit = ex_map.get(word_raw)
-            if hit:
-                ex_jp_raw = hit.get("example_jp", "")
-                ex_kr_raw = hit.get("example_kr", "")
-
-        # HTML escape(렌더링용)
-        no = _h(no_raw)
-        qtxt = _h(qtxt_raw)
-        mya = _h(mya_raw)
-        ans = _h(ans_raw)
-        word = _h(word_raw)
-        yomi = _h(yomi_raw)
-        mean = _h(mean_raw)
-        posg = _h(posg_raw)
-        qtype = _h(qtype_raw)
-        ex_jp = _h(ex_jp_raw)
-        ex_kr = _h(ex_kr_raw)
+    cards = []
+    for w in st.session_state.wrong_list:
+        no = _s(w.get("No"))
+        qtext = _s(w.get("문제"))
+        picked = _s(w.get("내 답"))
+        correct = _s(w.get("정답"))
+        word = _s(w.get("단어"))
+        reading = _s(w.get("읽기"))
+        meaning = _s(w.get("뜻"))
+        mode = quiz_label_map.get(w.get("유형"), _s(w.get("유형")))
+        pos_label = POS_LABEL_MAP.get(w.get("품사"), _s(w.get("품사")))
 
         card_html = f"""
 <div class="jp">
   <div class="wrong-card">
     <div class="wrong-top">
-      <div class="wrong-no">No.{no}</div>
-      <div class="wrong-meta">{posg} · {qtype}</div>
+      <div class="wrong-left">
+        <div class="wrong-title">Q{_esc(no)}. {_esc(word)}</div>
+        <div class="wrong-sub">{_esc(qtext)} · 품사: {_esc(pos_label)} · 유형: {_esc(mode)}</div>
+      </div>
+      <div class="tag">오답</div>
     </div>
 
-    <div class="wrong-q">{qtxt}</div>
-
-    <div class="wrong-row">
-      <div class="wrong-k">내 답</div>
-      <div class="wrong-v">{mya if mya else "-"}</div>
-    </div>
-
-    <div class="wrong-row">
-      <div class="wrong-k">정답</div>
-      <div class="wrong-v"><b>{ans}</b></div>
-    </div>
-
-    <div class="wrong-mini">
-      <div class="chip">단어: <b>{word}</b></div>
-      <div class="chip">읽기: <b>{yomi}</b></div>
-      <div class="chip">뜻: <b>{mean}</b></div>
-    </div>
-"""
-        if ex_jp_raw or ex_kr_raw:
-            card_html += f"""
-    <div class="wrong-ex">
-      <div class="jp">{ex_jp}</div>
-      <div class="kr">{ex_kr}</div>
-    </div>
-"""
-        card_html += """
+    <div class="ans-row"><div class="ans-k">내 답</div><div>{_esc(picked)}</div></div>
+    <div class="ans-row"><div class="ans-k">정답</div><div><b>{_esc(correct)}</b></div></div>
+    <div class="ans-row"><div class="ans-k">발음</div><div>{_esc(reading)}</div></div>
+    <div class="ans-row"><div class="ans-k">뜻</div><div>{_esc(meaning)}</div></div>
   </div>
 </div>
 """
+        cards.append(card_html)
 
-        # ✅ 핵심: HTML 렌더링
-        st.markdown(card_html, unsafe_allow_html=True)
+    def _render_cards(card_list: list[str], max_height: int = 650):
+        if not card_list:
+            return
+        html_block = "".join(card_list)
+        h = 190 * len(card_list) + 10
+        h = max(190, min(h, max_height))
 
-        # ✅ (선택) 발음 버튼: PRO일 때만
-        if "is_pro" in globals() and callable(globals().get("is_pro")) and is_pro():
-            # reading 우선, 없으면 단어
-            tts_text = yomi_raw or word_raw
-            if tts_text and ("render_pronounce_button" in globals()) and callable(globals().get("render_pronounce_button")):
-                # uid는 "중복 없는 값"으로
-                render_pronounce_button(tts_text, uid=f"wrong_{no_raw}_{idx}", label="🔊 발음")
+        components.html(
+            textwrap.dedent(f"""
+{STYLE}
+{html_block}
+"""),
+            height=h,
+        )
 
-    # ------------------------------------------------------------
-    # ✅ pos_group별로 묶어서 expander
-    # ------------------------------------------------------------
-    wrongs = st.session_state.get("wrong_list") or []
+    MAX_PREVIEW = 3
+    preview_cards = cards[:MAX_PREVIEW]
+    rest_cards = cards[MAX_PREVIEW:]
 
-    grouped: dict[str, list[dict]] = {}
-    for w in wrongs:
-        g = _raw(w.get("품사", "etc")) or "etc"
-        grouped.setdefault(g, []).append(w)
+    _render_cards(preview_cards, max_height=650)
 
-    # 보기 좋게: POS_LABEL_MAP이 있으면 그 순서를 약간 유지(없으면 알파)
-    def _group_sort_key(g: str):
-        # 자주 쓰는 pos가 먼저 오게 하고 싶으면 여기 순서를 추가해도 됨
-        return str(g)
-
-    for g in sorted(grouped.keys(), key=_group_sort_key):
-        items = grouped[g]
-        label = (POS_LABEL_MAP.get(g, g) if "POS_LABEL_MAP" in globals() else g)
-        with st.expander(f"📌 {label} 오답 ({len(items)}개)", expanded=True):
-            for i, w in enumerate(items):
-                render_wrong_card(w, idx=i)
+    if rest_cards:
+        with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
+            _render_cards(rest_cards, max_height=900)
 
 # ============================================================
-# ✅ 제출 후: 네이버톡 (옵션)
+# ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
 # ============================================================
-if st.session_state.get("submitted") and (SHOW_NAVER_TALK == "Y"):
-    render_naver_talk()
+if st.session_state.get("submitted", False):
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
 
-# ============================================================
-# ✅ (선택) 제출 후: 진행중 저장(안전)
-# ============================================================
-try:
-    sb_authed_local = get_authed_sb()
-    if sb_authed_local is not None and st.session_state.get("user"):
-        save_progress_to_db(sb_authed_local, st.session_state.user.id)
-except Exception:
-    pass
+    cA, cB = st.columns(2)
+    with cA:
+        locked = free_limit_reached()
+
+        if locked:
+            st.caption("🔒 오늘 무료 한도(30문항)를 모두 사용했어요.")
+
+        if st.button(
+            "✅ 다음 10문항 시작하기",
+            type="primary",
+            use_container_width=True,
+            key="btn_next_10",
+            disabled=locked
+        ):
+            if locked:
+                st.stop()
+
+            clear_question_widget_keys()
+            new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+            start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            st.session_state.free_limit_applied_this_attempt = False
+            mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+
+    with cB:
+        # 오답이 있을 때만 활성화(없으면 disabled)
+        has_wrongs = bool(st.session_state.get("wrong_list"))
+        pro_only_disabled = (not is_pro()) or (not has_wrongs)
+        if st.button(
+            "❌ 틀린 문제만 다시 풀기",
+            use_container_width=True,
+            disabled=pro_only_disabled,
+            key="btn_retry_wrongs_bottom_global"
+        ):
+            clear_question_widget_keys()
+            retry_quiz = build_quiz_from_wrongs(
+                st.session_state.wrong_list,
+                st.session_state.quiz_type,
+                st.session_state.pos_group
+            )
+            start_quiz_state(retry_quiz, st.session_state.quiz_type, clear_wrongs=True)
+            st.session_state["_scroll_top_once"] = True
+            st.rerun()
+
+    show_naver_talk = (SHOW_NAVER_TALK == "N") or is_admin()
+    if show_naver_talk:
+        render_naver_talk()
