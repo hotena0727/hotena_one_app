@@ -2310,6 +2310,12 @@ user_id = user.id
 user_email = getattr(user, "email", None) or st.session_state.get("login_email")
 sb_authed = get_authed_sb()
 
+# ✅ PRO 캐시가 다른 유저에게 넘어가는 것 방지
+cached_uid = st.session_state.get("plan_cached_user_id")
+if cached_uid != user_id:
+    st.session_state.pop("plan_cached", None)
+    st.session_state["plan_cached_user_id"] = user_id
+
 # ✅ pos_group 기반 available_types 적용
 try:
     if sb_authed is not None:
