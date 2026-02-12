@@ -1115,22 +1115,61 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
 
   const text = {js_text};
 
-  btn.addEventListener("click", () => {{
+  function pickJaVoice(voices){{
+    voices = voices || [];
+    // ja-JP 우선, 없으면 ja 로 시작하는 것
+    return voices.find(v => (v.lang||"").toLowerCase() === "ja-jp")
+        || voices.find(v => (v.lang||"").toLowerCase().startsWith("ja"))
+        || null;
+  }}
+
+  function speakJA(t){{
     try {{
-      // ✅ iframe 내부에서는 말하지 말고, 부모에게 "말해줘"라고만 요청
-      window.parent.postMessage({{
-        type: "HATENA_TTS",
-        text: String(text)
-      }}, "*");
+      const w = window; // ✅ 부모 말고 현재 iframe에서 직접
+      if (!w.speechSynthesis) {{
+        console.log("[TTS] speechSynthesis not available");
+        return;
+      }}
+
+      // 연타 시 끊고 다시
+      w.speechSynthesis.cancel();
+
+      const u = new SpeechSynthesisUtterance(String(t));
+      u.lang = "ja-JP";
+      u.rate = 1.0;
+      u.pitch = 1.0;
+      u.volume = 1.0;
+
+      const doSpeak = () => {{
+        const vs = w.speechSynthesis.getVoices() || [];
+        const ja = pickJaVoice(vs);
+        if (ja) u.voice = ja;
+        w.speechSynthesis.speak(u);
+      }};
+
+      // ✅ Whale에서 voices가 늦게 뜨는 경우가 많아서 3중 안전장치
+      const nowVoices = w.speechSynthesis.getVoices();
+      if (nowVoices && nowVoices.length) {{
+        doSpeak();
+      }} else {{
+        w.speechSynthesis.onvoiceschanged = () => doSpeak();
+        setTimeout(doSpeak, 100);
+        setTimeout(doSpeak, 500);
+        setTimeout(doSpeak, 1200);
+      }}
     }} catch(e) {{
-      console.log(e);
+      console.log("[TTS] error", e);
     }}
-  }});
+  }}
+
+  // ✅ 버튼 클릭 “동작 안에서” 바로 speak (이게 Whale에 중요)
+  btn.addEventListener("click", () => speakJA(text));
 }})();
 </script>
         """,
         height=55,
     )
+
 
 
 # ============================================================
@@ -2612,9 +2651,6 @@ for idx, q in enumerate(st.session_state.quiz):
 """,
     unsafe_allow_html=True
 )
-
-    # ✅ 뜻(meaning) 문제에서 발음 버튼 표시
-    render_tts_bootstrap()  # TTS 전역 주입(1회)
 
     if st.session_state.get("quiz_type") == "meaning":
         # 문제 텍스트는 jp_word가 한자 포함이라 "reading"을 읽게 하는 게 더 자연스럽습니다.
