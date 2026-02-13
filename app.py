@@ -3206,6 +3206,9 @@ if "counted_qids" not in st.session_state:
 if "is_graded" not in st.session_state:
     st.session_state["is_graded"] = False
 
+if SHOW_BOTTOM_GOAL:
+    render_today_goal_progress()
+    
 def render_today_goal_progress():
     st.markdown("### 🎯 오늘 목표 진행률")
 
