@@ -2743,6 +2743,15 @@ if is_locked:
     render_paywall(daily_solved)
     st.stop()
 
+# ✅ 오늘 푼 문항 수(total) 정의: 목표 UI/DEBUG에서 공통 사용
+total = 0
+try:
+    sb_authed_local = get_authed_sb()
+    if sb_authed_local is not None and user_id:
+        total = get_daily_solved_from_db(sb_authed_local, user_id)  # 오늘 푼 문항 수
+except Exception:
+    total = 0
+
 # ============================================================
 # ✅ Quiz Page
 # ============================================================
