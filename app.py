@@ -1259,6 +1259,44 @@ def render_pronounce_button(text: str, uid: str, label: str = "🔊 발음"):
         """,
         height=43,
     )
+# ============================================================
+# ✅ Onboarding (첫 방문 이용안내)
+# ============================================================
+
+ONBOARDING_COOKIE_KEY = "onboarding_seen_v1"
+
+def has_seen_onboarding() -> bool:
+    try:
+        v = cookies.get(ONBOARDING_COOKIE_KEY)
+        if str(v).strip() == "1":
+            return True
+    except Exception:
+        pass
+    return False
+
+def mark_seen_onboarding():
+    try:
+        cookies[ONBOARDING_COOKIE_KEY] = "1"
+        cookies.save()
+    except Exception:
+        pass
+
+def render_onboarding_card(expanded=True):
+    with st.expander("📘 처음 오셨나요? 60초 이용안내", expanded=expanded):
+        st.markdown("""
+**이 앱은 하루 10문항 루틴 퀴즈입니다.**
+
+1️⃣ 홈 → ▶ 오늘의 퀴즈 시작  
+2️⃣ 퀴즈 → 품사 선택 → 유형 선택  
+3️⃣ 제출 → 오답은 다시 풀기  
+4️⃣ 🔊 소리 ON 후 테스트 버튼 확인
+
+막히면 네이버톡 상담으로 문의하세요 🙂
+""")
+
+        if st.button("✅ 확인했어요 (다음부터 안 보기)", use_container_width=True):
+            mark_seen_onboarding()
+            st.rerun()
 
 # ============================================================
 # ✅ Login UI
@@ -1406,6 +1444,13 @@ def require_login():
         )
         auth_box()
         st.stop()
+
+# ✅ 첫 방문 자동 노출
+if not has_seen_onboarding():
+    render_onboarding_card(expanded=True)
+else:
+    if st.button("📘 이용안내 다시보기", use_container_width=True):
+        render_onboarding_card(expanded=True)
 
 # ============================================================
 # ✅ 네이버톡 배너 (제출 후만)
