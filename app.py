@@ -2634,7 +2634,9 @@ st.divider()
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ============================================================
-# ✅ 버튼: 새 문제 / 맞힌 단어 제외 초기화
+# ✅ 버튼: 새 문제(랜덤10) / 맞힌 단어 제외 초기화  (복붙 버전)
+#   - 기존 "쓸데없는 새 문제" 버튼 제거
+#   - "🔄 새 문제(랜덤 10문항)"을 왼쪽(원래 자리)로 이동
 # ============================================================
 
 def should_lock_quiz() -> bool:
@@ -2647,15 +2649,6 @@ locked = should_lock_quiz()
 cbtn1, cbtn2 = st.columns(2)
 
 with cbtn1:
-    st.button("새 문제", disabled=locked, use_container_width=True)
-
-with cbtn2:
-    st.button("맞힌 단어 제외 초기화", disabled=locked, use_container_width=True)
-
-    # locked가 항상 False라면 이 캡션은 사실상 안 뜸(있어도 무방)
-    if locked:
-        st.caption("🔒 무료는 하루 30문항(3세트)까지입니다. PRO로 업그레이드하면 계속 풀 수 있어요.")
-
     if st.button(
         "🔄 새 문제(랜덤 10문항)",
         use_container_width=True,
@@ -2668,6 +2661,13 @@ with cbtn2:
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
+
+with cbtn2:
+    st.button("맞힌 단어 제외 초기화", disabled=locked, use_container_width=True)
+
+    # locked가 항상 False라면 이 캡션은 사실상 안 뜸(있어도 무방)
+    if locked:
+        st.caption("🔒 무료는 하루 30문항(3세트)까지입니다. PRO로 업그레이드하면 계속 풀 수 있어요.")
 
 k_now = mastery_key()
 if st.session_state.get("mastery_done", {}).get(k_now, False):
