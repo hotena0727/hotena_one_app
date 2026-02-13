@@ -2836,12 +2836,15 @@ st.markdown('<div id="goal_seg_anchor"></div>', unsafe_allow_html=True)
 if "goal_sessions" not in st.session_state:
     st.session_state.goal_sessions = 1  # 기본 1회(=10문항)
 
-target_questions = st.slider(
-    "오늘 목표",
-    min_value=10, max_value=60, step=10,
-    value=st.session_state.get("target_questions", 10),
+goal_sessions = st.segmented_control(
+    label="오늘 목표",
+    options=[1, 2, 3, 4, 5, 6],
+    format_func=lambda x: f"{x}회(= {x*10}문항)",
+    default=st.session_state.goal_sessions,
+    key="goal_sessions",
 )
-st.session_state["target_questions"] = target_questions
+
+target_questions = int(goal_sessions) * 10
 
 # ✅ 2) 오늘 푼 문항수(기존 total 변수 재사용)
 today_total = int(total)  # ← 기존 코드에서 total이 "오늘 푼 문항"이면 그대로 OK
@@ -3215,6 +3218,16 @@ st.markdown(
 """,
     unsafe_allow_html=True
 )
+
+
+# ============================================================
+# ✅ 하단 렌더링(숨김)
+#   - 아래 조건부 블록만 남기고, "직접 호출"은 절대 하지 마세요.
+# ============================================================
+
+if SHOW_BOTTOM_GOAL:
+    render_today_goal_progress()
+
 
 # ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
