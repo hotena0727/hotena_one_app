@@ -2874,8 +2874,6 @@ if "wrong_counter" not in st.session_state:
     st.session_state.wrong_counter = {}
 if "total_counter" not in st.session_state:
     st.session_state.total_counter = {}
-st.caption(f"[DEBUG] total={total}, type={type(total)}")
-st.caption(f"[DEBUG] quiz_len={len(st.session_state.get('quiz', []))}")
 
 ensure_mastered_words_shape()
 ensure_excluded_wrong_words_shape()
