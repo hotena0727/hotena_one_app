@@ -2519,11 +2519,29 @@ def render_today_report_db_only(sb_authed, user_id: str):
 
         rep = build_today_report_from_rows(today_rows, recent_rows)
 
+        is_pro_user = is_pro()
+
+        if not is_pro_user:
+            st.caption("🔒 상세 학습 리포트는 PRO에서 확인할 수 있어요.")
+
+        def mask_value(val, suffix=""):
+            if is_pro_user:
+                return f"{val}{suffix}"
+            return f"<span style='filter: blur(6px); user-select:none;'>{val}</span>{suffix}"               
+
+
         total = rep["today_total"]
         acc = rep["accuracy"]
         wrong = rep["today_wrong"]
         streak = rep["streak"]
         top_mode = mode_label(rep["top_wrong_mode"])
+
+        # ✅ 표시용 (PRO 아니면 blur 처리)
+        total_display = mask_value(total)
+        acc_display = mask_value(acc, "%")
+        wrong_display = mask_value(wrong)
+        streak_display = mask_value(streak, "일")
+
 
         # 오늘 학습 없으면 조용히
         if total <= 0:
@@ -2543,19 +2561,19 @@ def render_today_report_db_only(sb_authed, user_id: str):
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
     <div style="flex:1 1 120px; min-width:120px;">
       <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 푼 문항</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{total}</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{mask_value(total)}</div>
     </div>
     <div style="flex:1 1 120px; min-width:120px;">
       <div style="font-size:12px; opacity:.7; font-weight:800;">정답률</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{acc}%</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{mask_value(acc, "%")}</div>
     </div>
     <div style="flex:1 1 120px; min-width:120px;">
       <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 오답</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{wrong}</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{mask_value(wrong)}</div>
     </div>
     <div style="flex:1 1 160px; min-width:160px;">
       <div style="font-size:12px; opacity:.7; font-weight:800;">연속 학습</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{streak}일</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{mask_value(streak, "일")}</div>
     </div>
   </div>
   <div style="margin-top:8px; font-size:12px; opacity:.78; line-height:1.4;">
@@ -2997,6 +3015,8 @@ with cbtn2:
 k_now = mastery_key()
 if st.session_state.get("mastery_done", {}).get(k_now, False):
     st.success("🏆 이 품사/유형을 완전히 정복했어요!")
+
+    
 
 # ============================================================
 # ✅ 퀴즈 생성(없으면 1회 자동 생성)
