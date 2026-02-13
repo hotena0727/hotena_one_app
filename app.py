@@ -516,6 +516,7 @@ def clear_question_widget_keys():
     keys_to_del = [k for k in list(st.session_state.keys()) if isinstance(k, str) and k.startswith("q_")]
     for k in keys_to_del:
         st.session_state.pop(k, None)
+
         
 # ============================================================
 # ✅ FREE 관련 공통 유틸 (현재 제한 OFF 모드)
@@ -2317,16 +2318,22 @@ if "page" not in st.session_state:
 if st.session_state.get("page") not in ALLOWED_PAGES:
     st.session_state.page = "home"
 
-user = st.session_state.user
-user_id = user.id
-user_email = getattr(user, "email", None) or st.session_state.get("login_email")
+user = st.session_state.get("user")
+user_id = getattr(user, "id", None) if user else None
+user_email = getattr(user, "email", None) if user else None
+user_email = user_email or st.session_state.get("login_email")
+
 sb_authed = get_authed_sb()
 
-# ✅ PRO 캐시가 다른 유저에게 넘어가는 것 방지
+# ✅ PRO 캐시가 다른 유저에게 넘어가는 것 방지 (먼저!)
 cached_uid = st.session_state.get("plan_cached_user_id")
 if cached_uid != user_id:
     st.session_state.pop("plan_cached", None)
     st.session_state["plan_cached_user_id"] = user_id
+
+# ✅ 로그인 유저 + authed 클라 둘 다 있을 때만 리포트 표시
+if sb_authed and user_id:
+    render_today_report_db_only(sb_authed, user_id)
 
 # ✅ pos_group 기반 available_types 적용
 try:
@@ -2482,8 +2489,9 @@ if streak is not None:
     elif streak >= 7:
         st.info("🏅 7일 연속 달성!")
 
-if "today_goal" not in st.session_state:
-    st.session_state.today_goal = "오늘은 10문항 1회 완주"
+# --- (A) 기존 "오늘의 목표(루틴)" 섹션 ---
+if "today_goal_text" not in st.session_state:
+    st.session_state.today_goal_text = "오늘은 10문항 1회 완주"
 if "today_goal_done" not in st.session_state:
     st.session_state.today_goal_done = False
 
@@ -2491,14 +2499,15 @@ with st.container():
     st.markdown("### 🎯 오늘의 목표(루틴)")
     c1, c2 = st.columns([7, 3])
     with c1:
-        st.session_state.today_goal = st.text_input(
+        st.session_state.today_goal_text = st.text_input(
             "목표 문장",
-            value=st.session_state.today_goal,
+            value=st.session_state.today_goal_text,
             label_visibility="collapsed",
             placeholder="예) 오늘은 명사 1회 + 동사 1회",
         )
     with c2:
         st.session_state.today_goal_done = st.checkbox("달성", value=bool(st.session_state.today_goal_done))
+
     if st.session_state.today_goal_done:
         st.success("좋아요. 오늘 루틴 완료 ✅")
     else:
@@ -2680,14 +2689,36 @@ with cbtn1:
         disabled=locked
     ):
         clear_question_widget_keys()
+    
+        # ✅ 새 퀴즈 시작 = 제출 카운트 플래그 리셋
+        st.session_state["_counted_today"] = False
+    
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
         mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
         start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
         st.session_state["_scroll_top_once"] = True
         st.rerun()
+        
+
+def reset_mastery_current():
+    k = mastery_key()
+    st.session_state.setdefault("seen_words", {}).setdefault(k, set()).clear()
+    st.session_state.setdefault("mastered_words", {}).setdefault(k, set()).clear()
+    st.session_state.setdefault("excluded_wrong_words", {}).setdefault(k, set()).clear()
+    st.session_state.setdefault("mastery_done", {})[k] = False
+    st.session_state.setdefault("mastery_banner_shown", {})[k] = False
+
+    clear_question_widget_keys()
+    new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
+    mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
+    start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
+    st.session_state["_scroll_top_once"] = True
+    st.rerun()
 
 with cbtn2:
-    st.button("맞힌 단어 제외 초기화", disabled=locked, use_container_width=True)
+    if st.button("맞힌 단어 제외 초기화", disabled=locked, use_container_width=True, key="btn_reset_mastery"):
+        reset_mastery_current()
+
 
     # locked가 항상 False라면 이 캡션은 사실상 안 뜸(있어도 무방)
     if locked:
@@ -2743,13 +2774,16 @@ def _esc_html(x) -> str:
 
 # ============================================================
 # ✅ 오늘의 학습 리포트 (DB only / quiz_attempts 기반)
-#   - 로그인한 유저만 표시
+#   - 로그인 유저만 표시
 #   - 오늘 푼 문항 / 정답률 / 오늘 오답 / 연속 학습(streak)
-#   - 가장 많이 틀린 pos/모드 (pos_mode)
+#   - 가장 많이 틀린 모드(pos_mode)
 # ============================================================
+
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from collections import Counter
+import html
+import streamlit as st
 
 KST = ZoneInfo("Asia/Seoul")
 
@@ -2760,21 +2794,18 @@ def _parse_dt_any(x) -> datetime | None:
     if isinstance(x, datetime):
         dt = x
     else:
-        s = str(x)
-        # e.g. "2026-02-13T00:12:34.123Z" / "+00:00" 등
-        s = s.replace("Z", "+00:00")
+        s = str(x).replace("Z", "+00:00")
         try:
             dt = datetime.fromisoformat(s)
         except Exception:
             return None
 
-    # tz 없는 경우 UTC로 가정
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
 
-def fetch_attempts_between(supabase, user_id: str, start_utc: datetime, end_utc: datetime):
-    """기간 내 attempts 가져오기 (created_at은 보통 UTC)."""
+def fetch_attempts_between(supabase, user_id: str, start_utc: datetime, end_utc: datetime) -> list[dict]:
+    """기간 내 attempts 가져오기 (created_at은 보통 UTC timestamptz)."""
     try:
         res = (
             supabase.table("quiz_attempts")
@@ -2789,95 +2820,184 @@ def fetch_attempts_between(supabase, user_id: str, start_utc: datetime, end_utc:
     except Exception:
         return []
 
+def _kst_day_key(dt_utc: datetime) -> str:
+    """UTC dt -> KST 날짜키(YYYY-MM-DD)."""
+    k = dt_utc.astimezone(KST)
+    return k.strftime("%Y-%m-%d")
+
 def build_today_report_from_rows(today_rows: list[dict], recent_rows: list[dict]) -> dict:
     # ✅ 오늘 집계
     today_total = 0
     today_correct = 0
     today_wrong = 0
-    wrong_pos_counter = Counter()
+    wrong_mode_counter = Counter()
 
-    for r in today_rows:
+    for r in (today_rows or []):
         qlen = int(r.get("quiz_len") or 0)
         score = int(r.get("score") or 0)
-        wc = int(r.get("wrong_count") or max(0, qlen - score))
-        pos_mode = (r.get("pos_mode") or "-")
+
+        wc_raw = r.get("wrong_count")
+        if wc_raw is None or wc_raw == "":
+            wc = max(0, qlen - score)
+        else:
+            wc = int(wc_raw or 0)
+
+        mode = str(r.get("pos_mode") or "-")
 
         today_total += qlen
         today_correct += score
         today_wrong += wc
 
-        # "많이 틀린 pos/모드"는 오답이 있는 세트에 가중치 부여
         if wc > 0:
-            wrong_pos_counter[pos_mode] += wc
+            wrong_mode_counter[mode] += wc
 
     accuracy = 0
     if today_total > 0:
         accuracy = int(round((today_correct / today_total) * 100))
 
-    top_wrong_pos = "-"
-    if wrong_pos_counter:
-        top_wrong_pos = wrong_pos_counter.most_common(1)[0][0]
+    top_wrong_mode = "-"
+    if wrong_mode_counter:
+        top_wrong_mode = wrong_mode_counter.most_common(1)[0][0]
 
-    # ✅ 연속 학습(streak): 최근 N일 중 "attempt가 있는 날" 연속 계산
-    # 오늘부터 거꾸로 내려가며 attempt가 있는 날짜가 끊길 때까지
+    # ✅ 연속 학습(streak)
     day_has = set()
-    for r in recent_rows:
+    for r in (recent_rows or []):
         dt = _parse_dt_any(r.get("created_at"))
         if not dt:
             continue
-        day_kst = dt.astimezone(KST).date()
-        day_has.add(day_kst)
+        day_has.add(_kst_day_key(dt))
 
     streak = 0
-    d = datetime.now(KST).date()
-    while d in day_has:
-        streak += 1
-        d = d - timedelta(days=1)
+    cur = datetime.now(KST).date()
+    for _ in range(90):  # 최대 90일만 체크
+        key = cur.strftime("%Y-%m-%d")
+        if key in day_has:
+            streak += 1
+            cur = cur - timedelta(days=1)
+        else:
+            break
 
     return {
-        "today_total": today_total,
-        "today_wrong": today_wrong,
-        "accuracy": accuracy,
-        "streak": streak,
-        "top_wrong_pos": top_wrong_pos,
+        "today_total": int(today_total),
+        "today_correct": int(today_correct),
+        "today_wrong": int(today_wrong),
+        "accuracy": int(accuracy),
+        "top_wrong_mode": str(top_wrong_mode),
+        "streak": int(streak),
     }
 
-def render_today_report(report: dict):
-    st.markdown("### 📊 오늘의 학습 리포트")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("오늘 푼 문항", f"{report.get('today_total', 0)}")
-    c2.metric("정답률", f"{report.get('accuracy', 0)}%")
-    c3.metric("오늘 오답", f"{report.get('today_wrong', 0)}")
-    c4.metric("연속 학습", f"{report.get('streak', 0)}일")
-    st.caption(f"❗ 가장 많이 틀린 품사/모드: **{report.get('top_wrong_pos', '-') }**")
+def render_today_report_db_only(sb_authed, user_id: str):
+    """한 방에: fetch -> build -> render (DB only)"""
+    try:
+        now_kst = datetime.now(KST)
+        start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_kst = start_kst + timedelta(days=1)
+
+        # DB는 UTC timestamptz인 경우가 많으니 UTC로 변환해서 조회
+        start_utc = start_kst.astimezone(timezone.utc)
+        end_utc = end_kst.astimezone(timezone.utc)
+
+        today_rows = fetch_attempts_between(sb_authed, user_id, start_utc, end_utc)
+
+        # streak 계산용 최근 60일
+        recent_start_utc = (start_kst - timedelta(days=60)).astimezone(timezone.utc)
+        recent_rows = fetch_attempts_between(sb_authed, user_id, recent_start_utc, end_utc)
+
+        rep = build_today_report_from_rows(today_rows, recent_rows)
+
+        total = rep["today_total"]
+        acc = rep["accuracy"]
+        wrong = rep["today_wrong"]
+        streak = rep["streak"]
+        top_mode = rep["top_wrong_mode"]
+
+        # 오늘 학습 없으면 조용히
+        if total <= 0:
+            st.caption("오늘의 학습 리포트: 아직 학습 기록이 없어요 🙂")
+            return
+
+        st.markdown(
+            f"""
+<div class="jp" style="
+  border:1px solid rgba(120,120,120,0.18);
+  border-radius:18px;
+  padding:14px 14px;
+  background: rgba(255,255,255,0.03);
+  margin: 6px 0 10px 0;
+">
+  <div style="font-weight:900; font-size:14px; opacity:.75;">📈 오늘의 학습 리포트</div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <div style="flex:1 1 120px; min-width:120px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 푼 문항</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{total}</div>
+    </div>
+    <div style="flex:1 1 120px; min-width:120px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">정답률</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{acc}%</div>
+    </div>
+    <div style="flex:1 1 120px; min-width:120px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 오답</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{wrong}</div>
+    </div>
+    <div style="flex:1 1 160px; min-width:160px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">연속 학습</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{streak}일</div>
+    </div>
+  </div>
+  <div style="margin-top:8px; font-size:12px; opacity:.78; line-height:1.4;">
+    오늘 가장 많이 틀린 모드: <b>{html.escape(str(top_mode))}</b>
+  </div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+    except Exception:
+        # 리포트가 실패해도 앱이 멈추면 안 됨
+        st.caption("오늘 리포트를 불러오지 못했어요.")
+
+
+# ============================================================
+# ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
+# ============================================================
+def get_today_goal_default() -> int:
+    return 30  # 기본 목표(원하면 10/20/50 등으로 바꾸세요)
+
+if "today_goal_num" not in st.session_state:
+    st.session_state.today_goal_num = get_today_goal_default()
+
+goal = int(st.session_state.get("today_goal_num", get_today_goal_default()))
+
+def get_today_done_count() -> int:
+    # "오늘 푼 문항"을 세션에서 누적
+    # (제출 시 add_done_count()를 호출해 누적시키는 방식)
+    return int(st.session_state.get("today_done", 0))
+
+def add_done_count(n: int):
+    st.session_state["today_done"] = get_today_done_count() + int(n)
+
+def reset_today_done():
+    st.session_state["today_done"] = 0
+
+def render_today_goal_progress():
+    st.markdown("### 🎯 오늘 목표 진행률")
+    # 목표값은 사이드바/설정 UI로 바꾸고 싶으면 여기만 확장하면 됨
+    goal = int(st.session_state.get("today_goal", get_today_goal_default()))
+    done = get_today_done_count()
+
+    # 0~1 사이로 clamp
+    ratio = 0.0 if goal <= 0 else min(max(done / goal, 0.0), 1.0)
+
+    st.progress(ratio)
+    st.caption(f"진행: **{done} / {goal}문항** ({int(ratio*100)}%)")
+
+    # 원하면 리셋 버튼(관리자/본인용)
+    # (너무 노출 싫으면 이 버튼은 빼세요)
+    if st.button("🔁 오늘 목표 리셋", use_container_width=True, key="btn_reset_today_goal"):
+        reset_today_done()
+        st.rerun()
+
     st.divider()
-
-def render_today_report_db_only(supabase, user_id: str):
-    """한 방에: fetch -> build -> render"""
-    now_kst = datetime.now(KST)
-    start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_kst = start_kst + timedelta(days=1)
-
-    # created_at이 UTC라고 가정하고 UTC로 변환해 질의
-    start_utc = start_kst.astimezone(timezone.utc)
-    end_utc = end_kst.astimezone(timezone.utc)
-
-    # streak 계산용: 최근 60일 정도만 가져오면 충분
-    recent_start_utc = (start_kst - timedelta(days=60)).astimezone(timezone.utc)
-
-    today_rows = fetch_attempts_between(supabase, user_id, start_utc, end_utc)
-    recent_rows = fetch_attempts_between(supabase, user_id, recent_start_utc, end_utc)
-
-    report = build_today_report_from_rows(today_rows, recent_rows)
-    render_today_report(report)
-
-def render_today_report_db_only(supabase, user_id: str):
-    ...
-    render_today_report(report)
-
-# ✅ 로그인 유저일 때만 오늘 리포트 표시  ← 여기!
-if st.session_state.get("user_id"):
-    render_today_report_db_only(sb, st.session_state["user_id"])
 
 # ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
@@ -2951,9 +3071,20 @@ sync_answers_from_widgets()
 quiz_len = len(st.session_state.quiz)
 all_answered = (quiz_len > 0) and all(a is not None for a in st.session_state.answers)
 
-if st.button("✅ 제출하고 채점하기", disabled=not all_answered, type="primary", use_container_width=True, key="btn_submit"):
+if st.button(
+    "✅ 제출하고 채점하기",
+    disabled=not all_answered,
+    type="primary",
+    use_container_width=True,
+    key="btn_submit"
+):
     st.session_state.submitted = True
     st.session_state.session_stats_applied_this_attempt = False
+
+    # ✅ 중복 카운트 방지 (제출 연타 / rerun 대비)
+    if not st.session_state.get("_counted_today", False):
+        add_done_count(int(st.session_state.get("quiz_len", 10)))
+        st.session_state["_counted_today"] = True
 
 if not all_answered:
     st.info("모든 문제에 답을 선택하면 제출 버튼이 활성화됩니다.")
@@ -3221,6 +3352,9 @@ if st.session_state.get("submitted", False):
                 st.stop()
 
             clear_question_widget_keys()
+
+            st.session_state["_counted_today"] = False
+            
             new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
             start_quiz_state(new_quiz, st.session_state.quiz_type, clear_wrongs=True)
             st.session_state.free_limit_applied_this_attempt = False
