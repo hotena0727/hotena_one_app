@@ -734,7 +734,7 @@ def mark_progress_dirty():
 
     now = time.time()
     last = st.session_state.get("_last_progress_save_ts", 0.0)
-    if now - last < 100.0:
+    if now - last < 60.0:
         return
 
     try:
