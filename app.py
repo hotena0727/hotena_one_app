@@ -3071,14 +3071,17 @@ if st.session_state.get("mastery_done", {}).get(k_now, False):
     st.success("🏆 이 품사/유형을 완전히 정복했어요!")
 
     
-
 # ============================================================
 # ✅ 퀴즈 생성(없으면 1회 자동 생성)
 # ============================================================
+
+k_now = mastery_key()  # ✅ 먼저!
+
 if "quiz" not in st.session_state or not isinstance(st.session_state.quiz, list):
     st.session_state.quiz = []
 
 is_mastered_done = bool(st.session_state.get("mastery_done", {}).get(k_now, False))
+
 if (not is_mastered_done) and len(st.session_state.quiz) == 0:
     if is_locked:
         render_paywall(daily_solved)
@@ -3090,8 +3093,6 @@ if (not is_mastered_done) and len(st.session_state.quiz) == 0:
     mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
 
 if len(st.session_state.quiz) == 0:
-    k_now = mastery_key()
-
     if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
         st.success("✅ 이 설정에서 새로 출제할 문제가 더 이상 없습니다.")
         st.caption("👉 ‘출제 이력 초기화(다시 시작)’를 누르거나, 다른 품사·유형을 선택해 주세요.")
@@ -3108,6 +3109,7 @@ if "answers" not in st.session_state or not isinstance(st.session_state.answers,
 if bool(st.session_state.get("mastery_done", {}).get(k_now, False)):
     st.stop()
 
+
 def _esc_html(x) -> str:
     x = "" if x is None else str(x)
     return (x.replace("&", "&amp;")
@@ -3116,42 +3118,12 @@ def _esc_html(x) -> str:
              .replace('"', "&quot;")
              .replace("'", "&#39;"))
 
+
 # ============================================================
 # ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
 # ============================================================
-def get_today_goal_default() -> int:
-    return 1  # 기본 목표(원하면 10/20/50 등으로 바꾸세요)
-
-if "today_goal_num" not in st.session_state:
-    st.session_state.today_goal_num = get_today_goal_default()
-
-# ✅ 목표 회차 선택 (1회=10문항)
-if "goal_sessions" not in st.session_state:
-    st.session_state.goal_sessions = get_today_goal_default()
-
-goal_sessions = st.segmented_control(
-    label="",
-    options=[1, 2, 3, 4],
-    format_func=lambda x: f"{x}회 ({x*10}문항)",
-    default=st.session_state.goal_sessions,
-    key="goal_sessions",
-)
-
-goal = int(goal_sessions) * 10
-done = get_today_done_count()
-
-ratio = 0.0 if goal <= 0 else min(max(done / goal, 0.0), 1.0)
-
-st.progress(ratio)
-st.caption(f"진행: **{done} / {goal}문항** ({int(ratio*100)}%)")
-
-if done >= goal:
-    st.success("🔥 오늘 목표 달성!")
-
 
 def get_today_done_count() -> int:
-    # "오늘 푼 문항"을 세션에서 누적
-    # (제출 시 add_done_count()를 호출해 누적시키는 방식)
     return int(st.session_state.get("today_done", 0))
 
 def add_done_count(n: int):
@@ -3160,25 +3132,38 @@ def add_done_count(n: int):
 def reset_today_done():
     st.session_state["today_done"] = 0
 
+def get_today_goal_default() -> int:
+    return 10  # 기본 목표 문항 수
+
+# ✅ B안 누적용 상태(먼저 초기화!)
+if "counted_qids" not in st.session_state:
+    st.session_state["counted_qids"] = set()
+
+if "is_graded" not in st.session_state:
+    st.session_state["is_graded"] = False
+
 def render_today_goal_progress():
     st.markdown("### 🎯 오늘 목표 진행률")
-    # 목표값은 사이드바/설정 UI로 바꾸고 싶으면 여기만 확장하면 됨
+
     goal = int(st.session_state.get("today_goal", get_today_goal_default()))
     done = get_today_done_count()
 
-    # 0~1 사이로 clamp
     ratio = 0.0 if goal <= 0 else min(max(done / goal, 0.0), 1.0)
 
     st.progress(ratio)
     st.caption(f"진행: **{done} / {goal}문항** ({int(ratio*100)}%)")
 
-    # 원하면 리셋 버튼(관리자/본인용)
-    # (너무 노출 싫으면 이 버튼은 빼세요)
+    if done >= goal and goal > 0:
+        st.success("🔥 오늘 목표 달성!")
+
     if st.button("🔁 오늘 목표 리셋", use_container_width=True, key="btn_reset_today_goal"):
         reset_today_done()
         st.rerun()
 
     st.divider()
+
+# ✅ 원하는 위치(상단 1곳)에 “호출”
+render_today_goal_progress()
 
 # ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
