@@ -3178,15 +3178,12 @@ def _esc_html(x) -> str:
 
 # ============================================================
 # ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
+#   - 상단(1곳)만 사용
+#   - 하단은 SHOW_BOTTOM_GOAL=False면 절대 렌더링 안 됨
 # ============================================================
 
-SHOW_BOTTOM_GOAL = False
+SHOW_BOTTOM_GOAL = False  # ✅ 하단을 완전히 숨기려면 False 유지
 
-if SHOW_BOTTOM_GOAL:
-    st.markdown("## 🎯 오늘 목표 진행률")
-    st.progress(goal_percent / 100)
-    st.caption(f"진행: {today_total} / {target_questions}문항 ({goal_percent}%)")
-    
 def get_today_done_count() -> int:
     return int(st.session_state.get("today_done", 0))
 
@@ -3197,18 +3194,14 @@ def reset_today_done():
     st.session_state["today_done"] = 0
 
 def get_today_goal_default() -> int:
-    return 10  # 기본 목표 문항 수
+    return 10
 
-# ✅ B안 누적용 상태(먼저 초기화!)
+# ✅ 누적용 상태(필요하면 유지)
 if "counted_qids" not in st.session_state:
     st.session_state["counted_qids"] = set()
-
 if "is_graded" not in st.session_state:
     st.session_state["is_graded"] = False
 
-if SHOW_BOTTOM_GOAL:
-    render_today_goal_progress()
-    
 def render_today_goal_progress():
     st.markdown("### 🎯 오늘 목표 진행률")
 
@@ -3229,12 +3222,14 @@ def render_today_goal_progress():
 
     st.divider()
 
-# ✅ 원하는 위치(상단 1곳)에 “호출”
-render_today_goal_progress()
+# ============================================================
+# ✅ 하단 렌더링(숨김)
+#   - 아래 조건부 블록만 남기고, "직접 호출"은 절대 하지 마세요.
+# ============================================================
 
-# ✅ (추천) 무료 유저 안내는 상단에 1번만
-if not is_pro():
-    st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
+if SHOW_BOTTOM_GOAL:
+    render_today_goal_progress()
+
 
 # ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
