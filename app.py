@@ -3176,51 +3176,49 @@ def _esc_html(x) -> str:
              .replace("'", "&#39;"))
 
 
-# ============================================================
-# ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
-#   - 상단(1곳)만 사용
-#   - 하단은 SHOW_BOTTOM_GOAL=False면 절대 렌더링 안 됨
-# ============================================================
+# ✅ goal 메시지(문구) 제거: goal_msg 아예 안 씀
+# goal_msg = ...
 
-SHOW_BOTTOM_GOAL = False  # ✅ 하단을 완전히 숨기려면 False 유지
+# ✅ 3) 자동 목표 UI (미니멀/컴팩트)
+st.markdown(
+    f"""
+<div class="jp" style="
+  border:1px solid rgba(49,51,63,.12);
+  border-radius:16px;
+  padding:10px 12px;            /* ✅ 얇게 */
+  background:#fff;
+  box-shadow: 0 1px 0 rgba(0,0,0,.02);
+  margin: 6px 0 10px 0;
+">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-weight:900; font-size:13px; opacity:.82;">🎯 오늘 목표</div>
+    <div style="font-size:12px; font-weight:900; opacity:.85;">
+      {("✅ 달성" if goal_done else "⏳ 진행중")}
+    </div>
+  </div>
 
-def get_today_done_count() -> int:
-    return int(st.session_state.get("today_done", 0))
+  <!-- ✅ 한 줄 요약 -->
+  <div style="margin-top:8px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <div style="font-size:12.5px; font-weight:800; opacity:.85;">
+      목표 <b>{target_questions}</b>
+    </div>
+    <div style="font-size:12.5px; font-weight:800; opacity:.85;">
+      진행 <b>{today_total}</b>/{target_questions}
+    </div>
+    <div style="font-size:12.5px; font-weight:900; opacity:.85;">
+      {goal_percent}%
+    </div>
+  </div>
 
-def add_done_count(n: int):
-    st.session_state["today_done"] = get_today_done_count() + int(n)
+  <!-- ✅ 얇은 프로그레스 바 -->
+  <div style="margin-top:8px; height:6px; border-radius:999px; background: rgba(0,0,0,0.07); overflow:hidden;">
+    <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.22);"></div>
+  </div>
+</div>
+""",
+    unsafe_allow_html=True
+)
 
-def reset_today_done():
-    st.session_state["today_done"] = 0
-
-def get_today_goal_default() -> int:
-    return 10
-
-# ✅ 누적용 상태(필요하면 유지)
-if "counted_qids" not in st.session_state:
-    st.session_state["counted_qids"] = set()
-if "is_graded" not in st.session_state:
-    st.session_state["is_graded"] = False
-
-def render_today_goal_progress():
-    st.markdown("### 🎯 오늘 목표 진행률")
-
-    goal = int(st.session_state.get("today_goal", get_today_goal_default()))
-    done = get_today_done_count()
-
-    ratio = 0.0 if goal <= 0 else min(max(done / goal, 0.0), 1.0)
-
-    st.progress(ratio)
-    st.caption(f"진행: **{done} / {goal}문항** ({int(ratio*100)}%)")
-
-    if done >= goal and goal > 0:
-        st.success("🔥 오늘 목표 달성!")
-
-    if st.button("🔁 오늘 목표 리셋", use_container_width=True, key="btn_reset_today_goal"):
-        reset_today_done()
-        st.rerun()
-
-    st.divider()
 
 # ============================================================
 # ✅ 하단 렌더링(숨김)
