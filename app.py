@@ -516,6 +516,23 @@ def clear_question_widget_keys():
     keys_to_del = [k for k in list(st.session_state.keys()) if isinstance(k, str) and k.startswith("q_")]
     for k in keys_to_del:
         st.session_state.pop(k, None)
+        
+# ============================================================
+# ✅ FREE 관련 공통 유틸 (현재 제한 OFF 모드)
+# ============================================================
+
+def add_free_used(n: int) -> None:
+    """FREE 사용량 기록. 현재 제한 OFF라 no-op."""
+    return
+
+def free_limit_reached() -> bool:
+    """FREE 제한 체크. 현재 제한 OFF라 항상 False."""
+    return False
+
+def should_lock_quiz() -> bool:
+    """버튼 disabled 등에 쓰는 잠금 플래그."""
+    return free_limit_reached()
+
 
 # ============================================================
 # ✅ POS filters (✅ B안 핵심)
@@ -3178,6 +3195,7 @@ if st.session_state.wrong_list:
     if rest_cards:
         with st.expander(f"오답 더 보기 (+{len(rest_cards)}개)", expanded=False):
             _render_cards(rest_cards, max_height=900)
+            
 
 # ============================================================
 # ✅ 제출 후 하단 액션 버튼 (오답 유무와 무관하게 항상 표시)
