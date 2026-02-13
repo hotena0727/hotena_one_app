@@ -2870,7 +2870,7 @@ st.markdown(
   <div style="display:flex; justify-content:space-between; align-items:center;">
     <div style="font-weight:900; font-size:14px; opacity:.80;">🎯 오늘 목표</div>
     <div style="font-size:12px; font-weight:900; opacity:.85;">
-      {("✅ 달성" if goal_done else "⏳ 진행중")}
+      {"✅ 달성" if goal_done else "⏳ 진행중"}
     </div>
   </div>
 
@@ -2886,7 +2886,12 @@ st.markdown(
     </div>
   </div>
 
- <!-- ✅ 문구를 박스 안에 다시 넣기 -->
+  <!-- ✅ 진행률 바 + 문구를 "같은 묶음"으로 -->
+  <div style="margin-top:10px;">
+    <div style="height:10px; border-radius:999px; background: rgba(0,0,0,0.07); overflow:hidden;">
+      <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.25);"></div>
+    </div>
+
     <div style="margin-top:10px; font-size:12.5px; opacity:.72; font-weight:700;">
       {goal_msg}
     </div>
