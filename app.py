@@ -726,7 +726,6 @@ def start_quiz_state(quiz_list: list, qtype: str, clear_wrongs: bool = True):
 
 def mark_progress_dirty():
     st.session_state.progress_dirty = True
-    st.session_state._progress_dirty_ts = time.time()
 
     sb_authed_local = get_authed_sb()
     u = st.session_state.get("user")
@@ -3166,10 +3165,11 @@ def render_today_goal_progress():
 render_today_goal_progress()
 
 # ============================================================
-# ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
+# ✅ 문제 표시
 # ============================================================
 circled_nums = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
 
+# ✅ answers는 "제출 시점에만" 만들 거라서, 여기서는 touch하지 않습니다.
 for idx, q in enumerate(st.session_state.quiz):
     badge = circled_nums[idx] if idx < len(circled_nums) else f"({idx+1})"
 
@@ -3180,8 +3180,7 @@ for idx, q in enumerate(st.session_state.quiz):
     flex:0 0 auto;
     font-size:20px;
     line-height:1;
-    font-weight:900;   /* ← 이 줄 추가 */
-    /* ✅ 미세 보정 (필요 시 숫자만 조절) */
+    font-weight:900;
     transform: translateY(1px);
   ">{badge}</div>
 
@@ -3193,53 +3192,45 @@ for idx, q in enumerate(st.session_state.quiz):
   ">{q["prompt"]}</div>
 </div>
 """,
-    unsafe_allow_html=True
-)
+        unsafe_allow_html=True
+    )
 
     if st.session_state.get("quiz_type") == "meaning":
-        # 문제 텍스트는 jp_word가 한자 포함이라 "reading"을 읽게 하는 게 더 자연스럽습니다.
-        # (예: 勉強 -> べんきょう)
         tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
-
-        # 원하면 "소리 ON일 때만" 보이게 할 수도 있어요.
-        # if st.session_state.get("sound_enabled", False):
         if is_pro():
             render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
         else:
-            # 무료는 버튼 대신 힌트만(너무 방해되면 이 줄도 빼도 됨)
             st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
 
-
-    
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
 
-    prev = st.session_state.answers[idx]
-    default_index = None
-    if prev is not None and prev in q["choices"]:
-        default_index = q["choices"].index(prev)
+    # ✅ default_index는 "세션에 이미 저장된 라디오 값"으로부터만 계산
+    prev = st.session_state.get(widget_key, None)
+    default_index = q["choices"].index(prev) if (prev in q["choices"]) else None
 
-    choice = st.radio(
+    st.radio(
         label="보기",
         options=q["choices"],
         index=default_index,
         key=widget_key,
         label_visibility="collapsed",
-        on_change=mark_progress_dirty,
+        # ✅ on_change는 빼는 게 체감이 제일 큼
+        # on_change=mark_progress_dirty,
     )
-    st.session_state.answers[idx] = choice
-
-sync_answers_from_widgets()
 
 
 # ============================================================
-# ✅ 제출/채점  (복붙용 블록)
-#   - 제출 전: 버튼 비활성화 + 안내
-#   - 제출 1회당: done_count / free_limit 중복 누적 방지
-#   - 제출 후: 점수/오답노트/DB 저장/통계 저장/진행 저장 + ✅ 콤보 계산(제출 후에만)
+# ✅ 제출/채점
 # ============================================================
-
 quiz_len = len(st.session_state.quiz)
-all_answered = (quiz_len > 0) and all(a is not None for a in st.session_state.answers)
+
+# ✅ "지금 선택된 값"을 세션에서 읽어서 all_answered 판단
+selected_now = []
+for idx, q in enumerate(st.session_state.quiz):
+    widget_key = f"q_{st.session_state.quiz_version}_{idx}"
+    selected_now.append(st.session_state.get(widget_key, None))
+
+all_answered = (quiz_len > 0) and all(a is not None for a in selected_now)
 
 if st.button(
     "✅ 제출하고 채점하기",
@@ -3251,7 +3242,10 @@ if st.button(
     st.session_state.submitted = True
     st.session_state.session_stats_applied_this_attempt = False
 
-    # ✅ 중복 카운트 방지 (제출 연타 / rerun 대비)
+    # ✅ 제출 시점에만 answers에 확정 반영
+    st.session_state.answers = selected_now
+
+    # ✅ 중복 카운트 방지
     if not st.session_state.get("_counted_today", False):
         add_done_count(int(st.session_state.get("quiz_len", 10)))
         st.session_state["_counted_today"] = True
