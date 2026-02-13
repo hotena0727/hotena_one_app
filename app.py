@@ -2796,21 +2796,42 @@ if "today_goal_done" not in st.session_state:
 
 st.markdown("""
 <style>
-/* 균등 분배 */
-div[data-testid="stSegmentedControl"] [role="group"]{
-    display: flex !important;
-    width: 100% !important;
+/* ===== 세그먼트 전체 컨테이너를 카드처럼 ===== */
+div[data-testid="stSegmentedControl"]{
+  padding: 10px 12px;
+  border: 1px solid rgba(49,51,63,.12);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 0 rgba(0,0,0,.02);
+  margin-bottom: 10px;   /* 아래 카드와 간격 */
 }
 
+/* 균등 분배 */
+div[data-testid="stSegmentedControl"] [role="group"]{
+  display:flex !important;
+  width:100% !important;
+  gap: 8px !important;   /* 버튼 사이 여백 */
+}
+
+/* 버튼(탭) 두께/라운드/정렬 */
 div[data-testid="stSegmentedControl"] button{
-    flex: 1 1 0 !important;
-    min-width: 0 !important;
-    text-align: center !important;
-    padding: 10px 12px !important;   /* 세로 조금 키움 */
-    font-size: 15px !important;
+  flex: 1 1 0 !important;
+  min-width: 0 !important;
+  text-align: center !important;
+  padding: 12px 10px !important;     /* ✅ 두께(높이) 키움 */
+  font-size: 15px !important;
+  border-radius: 12px !important;    /* ✅ 아래 카드 톤과 맞춤 */
+  border: 1px solid rgba(49,51,63,.12) !important;
+}
+
+/* 선택된 버튼 강조(너무 튀지 않게) */
+div[data-testid="stSegmentedControl"] button[aria-pressed="true"]{
+  border: 1px solid rgba(255,0,0,.35) !important;
+  box-shadow: 0 0 0 2px rgba(255,0,0,.08) inset;
 }
 </style>
 """, unsafe_allow_html=True)
+
 
 
 # ✅ 1) 목표(세션) 설정값
