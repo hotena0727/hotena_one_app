@@ -2796,74 +2796,79 @@ if "today_goal_done" not in st.session_state:
 
 st.markdown("""
 <style>
-/* ===== 세그먼트 전체 컨테이너를 카드처럼 ===== */
-div[data-testid="stSegmentedControl"]{
+/* ✅ 앵커 바로 다음 세그먼트를 카드 '상단'처럼 */
+#goal_wrap_anchor + div[data-testid="stSegmentedControl"]{
   padding: 10px 12px;
   border: 1px solid rgba(49,51,63,.12);
-  border-radius: 14px;
+  border-bottom: 0;                 /* ✅ 아래 박스와 경계선 겹침 제거 */
+  border-radius: 18px 18px 0 0;     /* ✅ 위만 둥글게 */
   background: #fff;
   box-shadow: 0 1px 0 rgba(0,0,0,.02);
-  margin-bottom: 10px;   /* 아래 카드와 간격 */
+  margin-bottom: 0 !important;      /* ✅ 아래와 딱 붙이기 */
 }
 
 /* 균등 분배 */
-div[data-testid="stSegmentedControl"] [role="group"]{
+#goal_wrap_anchor + div[data-testid="stSegmentedControl"] [role="group"]{
   display:flex !important;
   width:100% !important;
-  gap: 8px !important;   /* 버튼 사이 여백 */
+  gap: 8px !important;
 }
 
-/* 버튼(탭) 두께/라운드/정렬 */
-div[data-testid="stSegmentedControl"] button{
+/* 버튼 두께 */
+#goal_wrap_anchor + div[data-testid="stSegmentedControl"] button{
   flex: 1 1 0 !important;
   min-width: 0 !important;
   text-align: center !important;
-  padding: 12px 10px !important;     /* ✅ 두께(높이) 키움 */
+  padding: 12px 10px !important;
   font-size: 15px !important;
-  border-radius: 12px !important;    /* ✅ 아래 카드 톤과 맞춤 */
+  border-radius: 12px !important;
   border: 1px solid rgba(49,51,63,.12) !important;
 }
 
-/* 선택된 버튼 강조(너무 튀지 않게) */
-div[data-testid="stSegmentedControl"] button[aria-pressed="true"]{
+/* 선택 강조 */
+#goal_wrap_anchor + div[data-testid="stSegmentedControl"] button[aria-pressed="true"]{
   border: 1px solid rgba(255,0,0,.35) !important;
   box-shadow: 0 0 0 2px rgba(255,0,0,.08) inset;
+}
+
+/* ✅ 목표 박스를 카드 '하단'처럼: 위 라운드 제거 + 위 경계선 제거 */
+.goal_card_bottom{
+  border:1px solid rgba(49,51,63,.12) !important;
+  border-top:0 !important;
+  border-radius: 0 0 18px 18px !important;
+  background:#fff !important;
+  margin-top:0 !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
-
+# ✅ 앵커: "바로 다음 요소(세그먼트)"를 CSS로 잡기 위해 필요
+st.markdown('<div id="goal_wrap_anchor"></div>', unsafe_allow_html=True)
 
 # ✅ 1) 목표(세션) 설정값
 if "goal_sessions" not in st.session_state:
-    st.session_state.goal_sessions = 1  # 기본 1회(=10문항)
+    st.session_state.goal_sessions = 1
 
 goal_sessions = st.segmented_control(
     label="오늘 목표",
-    options=[1, 2, 3, 4, 5, 6],
+    options=[1,2,3,4,5,6],
     format_func=lambda x: f"{x}회(= {x*10}문항)",
     default=st.session_state.goal_sessions,
     key="goal_sessions",
 )
 
 target_questions = int(goal_sessions) * 10
-
-# ✅ 2) 오늘 푼 문항수(기존 total 변수 재사용)
-today_total = int(total)  # ← 기존 코드에서 total이 "오늘 푼 문항"이면 그대로 OK
+today_total = int(total)
 
 goal_done = today_total >= target_questions
 goal_percent = min(100, int(today_total / max(1, target_questions) * 100))
 remain = max(0, target_questions - today_total)
 
-# ✅ 3) 자동 목표 UI
+# ✅ 2) 목표 UI (아래 박스는 '하단 카드' 클래스를 부여)
 st.markdown(
-    f"""
-<div class="jp" style="
-  border:1px solid rgba(120,120,120,0.18);
-  border-radius:18px;
+f"""
+<div class="jp goal_card_bottom" style="
   padding:14px 14px;
-  background: rgba(255,255,255,0.03);
-  margin: 6px 0 10px 0;
 ">
   <div style="font-weight:900; font-size:14px; opacity:.75;">🎯 오늘 목표</div>
 
@@ -2879,8 +2884,8 @@ st.markdown(
     </div>
   </div>
 
-  <div style="margin-top:10px; height:10px; border-radius:999px; background: rgba(255,255,255,0.10); overflow:hidden;">
-    <div style="height:100%; width:{goal_percent}%; background: rgba(255,255,255,0.55);"></div>
+  <div style="margin-top:10px; height:10px; border-radius:999px; background: rgba(0,0,0,0.06); overflow:hidden;">
+    <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.20);"></div>
   </div>
 
   <div style="margin-top:8px; font-size:12px; opacity:.78;">
@@ -2888,8 +2893,9 @@ st.markdown(
   </div>
 </div>
 """,
-    unsafe_allow_html=True
+unsafe_allow_html=True
 )
+
 
 st.divider()
 
