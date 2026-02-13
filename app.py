@@ -3164,12 +3164,15 @@ def render_today_goal_progress():
 # ✅ 원하는 위치(상단 1곳)에 “호출”
 render_today_goal_progress()
 
+# ✅ (추천) 무료 유저 안내는 상단에 1번만
+if not is_pro():
+    st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
+
 # ============================================================
-# ✅ 문제 표시
+# ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
 # ============================================================
 circled_nums = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
 
-# ✅ answers는 "제출 시점에만" 만들 거라서, 여기서는 touch하지 않습니다.
 for idx, q in enumerate(st.session_state.quiz):
     badge = circled_nums[idx] if idx < len(circled_nums) else f"({idx+1})"
 
@@ -3197,26 +3200,33 @@ for idx, q in enumerate(st.session_state.quiz):
 
     if st.session_state.get("quiz_type") == "meaning":
         tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
+
+        # ✅ PRO만 버튼 렌더링 (무료는 루프 안에서 아무것도 안 찍음)
         if is_pro():
-            render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
-        else:
-            st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
+            render_pronounce_button(
+                tts_text,
+                uid=f"{st.session_state.quiz_version}_{idx}",
+                label="🔊 발음"
+            )
 
     widget_key = f"q_{st.session_state.quiz_version}_{idx}"
 
-    # ✅ default_index는 "세션에 이미 저장된 라디오 값"으로부터만 계산
-    prev = st.session_state.get(widget_key, None)
-    default_index = q["choices"].index(prev) if (prev in q["choices"]) else None
+    prev = st.session_state.answers[idx]
+    default_index = None
+    if prev is not None and prev in q["choices"]:
+        default_index = q["choices"].index(prev)
 
-    st.radio(
+    choice = st.radio(
         label="보기",
         options=q["choices"],
         index=default_index,
         key=widget_key,
         label_visibility="collapsed",
-        # ✅ on_change는 빼는 게 체감이 제일 큼
-        # on_change=mark_progress_dirty,
+        on_change=mark_progress_dirty,
     )
+    st.session_state.answers[idx] = choice
+
+sync_answers_from_widgets()
 
 
 # ============================================================
