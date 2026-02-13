@@ -2249,6 +2249,16 @@ def go_quiz_from_home():
     st.session_state.page = "quiz"
     st.session_state["_scroll_top_once"] = True
 
+MODE_LABEL_MAP = {
+    "reading": "발음",
+    "meaning": "뜻",
+    "kr2jp": "한→일",
+    # 필요하면 더 추가
+}
+
+def mode_label(x: str) -> str:
+    x = "" if x is None else str(x).strip().lower()
+    return MODE_LABEL_MAP.get(x, x)  # 없는 값이면 원문 유지
 def render_home():
     u = st.session_state.get("user")
     email = (getattr(u, "email", None) if u else None) or st.session_state.get("login_email", "")
@@ -2452,7 +2462,7 @@ def render_today_report_db_only(sb_authed, user_id: str):
         acc = rep["accuracy"]
         wrong = rep["today_wrong"]
         streak = rep["streak"]
-        top_mode = rep["top_wrong_mode"]
+        top_mode = mode_label(rep["top_wrong_mode"])
 
         # 오늘 학습 없으면 조용히
         if total <= 0:
