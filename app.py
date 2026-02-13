@@ -534,6 +534,62 @@ def should_lock_quiz() -> bool:
     """버튼 disabled 등에 쓰는 잠금 플래그."""
     return free_limit_reached()
 
+# ============================================================
+# ✅ COMBO 시스템 (연속 정답)
+# - 제출 시 10문항 기준으로 "최대 연속 정답" 계산
+# - 5 콤보: 🔥 / 10 콤보: 🎉 Perfect Streak
+# ============================================================
+
+def ensure_combo_state():
+    if "combo_best_today" not in st.session_state:
+        st.session_state.combo_best_today = 0
+    if "combo_last_notice" not in st.session_state:
+        st.session_state.combo_last_notice = 0  # 마지막으로 띄운 콤보 단계(5/10 등)
+
+def compute_max_combo(correct_flags: list[bool]) -> int:
+    mx = 0
+    cur = 0
+    for ok in correct_flags:
+        if ok:
+            cur += 1
+            mx = max(mx, cur)
+        else:
+            cur = 0
+    return int(mx)
+
+def render_combo_celebration(max_combo: int):
+    """
+    max_combo 기준으로 축하 메시지/효과를 1회만 띄움
+    """
+    ensure_combo_state()
+
+    # 오늘 최고 기록 갱신
+    if max_combo > int(st.session_state.combo_best_today or 0):
+        st.session_state.combo_best_today = int(max_combo)
+
+    # 단계별 트리거 (중복 방지)
+    # 10은 최상위이므로 먼저 체크
+    if max_combo >= 10 and st.session_state.combo_last_notice < 10:
+        st.session_state.combo_last_notice = 10
+        st.balloons()
+        st.success("🎉 Perfect Streak! 10연속 정답!")
+        return
+
+    if max_combo >= 5 and st.session_state.combo_last_notice < 5:
+        st.session_state.combo_last_notice = 5
+        st.success("🔥 콤보! 5연속 정답!")
+        return
+
+def render_combo_small_badge():
+    """
+    (선택) 상단/결과 근처에 조용히 보여주는 배지
+    """
+    ensure_combo_state()
+    best = int(st.session_state.combo_best_today or 0)
+    if best <= 0:
+        return
+    st.caption(f"🧠 오늘 최고 콤보: {best}연속")
+
 
 # ============================================================
 # ✅ POS filters (✅ B안 핵심)
@@ -659,8 +715,8 @@ def start_quiz_state(quiz_list: list, qtype: str, clear_wrongs: bool = True):
     st.session_state.stats_saved_this_attempt = False
     st.session_state.session_stats_applied_this_attempt = False
     
-    # ✅ [추가] FREE 제한 카운트 중복 누적 방지 플래그 리셋
-    st.session_state.free_limit_applied_this_attempt = False
+    # ✅ 추가: 새 회차 시작 시 콤보 알림 단계 초기화
+    st.session_state["combo_last_notice"] = 0
 
     # (선택) 디버그/추적용
     # st.session_state.free_limit_applied_ts = None
@@ -2246,6 +2302,10 @@ def reset_quiz_state_only():
 
 def go_quiz_from_home():
     reset_quiz_state_only()
+
+    # ✅ 콤보 알림 단계 리셋(오늘 최고 기록은 유지)
+    st.session_state["combo_last_notice"] = 0
+    
     st.session_state.page = "quiz"
     st.session_state["_scroll_top_once"] = True
 
@@ -2317,6 +2377,7 @@ def render_home():
     with c1:
         st.button("▶ 오늘의 퀴즈 시작", type="primary", use_container_width=True,
                   key="btn_home_start", on_click=go_quiz_from_home)
+                  
     with c2:
         st.button("📌 마이페이지", use_container_width=True,
                   key="btn_home_my", on_click=nav_to, args=("my",))
@@ -2898,6 +2959,9 @@ with cbtn1:
     
         # ✅ 새 퀴즈 시작 = 제출 카운트 플래그 리셋
         st.session_state["_counted_today"] = False
+
+        # ✅ 콤보 알림 단계 리셋(오늘 최고 콤보 기록은 유지)
+        st.session_state["combo_last_notice"] = 0
     
         new_quiz = build_quiz(st.session_state.quiz_type, st.session_state.pos_group)
         mark_quiz_as_seen(new_quiz, st.session_state.quiz_type, st.session_state.pos_group)
@@ -3087,8 +3151,12 @@ sync_answers_from_widgets()
 
 
 # ============================================================
-# ✅ 제출/채점
+# ✅ 제출/채점  (복붙용 블록)
+#   - 제출 전: 버튼 비활성화 + 안내
+#   - 제출 1회당: done_count / free_limit 중복 누적 방지
+#   - 제출 후: 점수/오답노트/DB 저장/통계 저장/진행 저장 + ✅ 콤보 계산(제출 후에만)
 # ============================================================
+
 quiz_len = len(st.session_state.quiz)
 all_answered = (quiz_len > 0) and all(a is not None for a in st.session_state.answers)
 
@@ -3097,7 +3165,7 @@ if st.button(
     disabled=not all_answered,
     type="primary",
     use_container_width=True,
-    key="btn_submit"
+    key="btn_submit",
 ):
     st.session_state.submitted = True
     st.session_state.session_stats_applied_this_attempt = False
@@ -3109,6 +3177,7 @@ if st.button(
 
 if not all_answered:
     st.info("모든 문제에 답을 선택하면 제출 버튼이 활성화됩니다.")
+
 
 # ============================================================
 # ✅ 제출 후 화면
@@ -3151,6 +3220,7 @@ if st.session_state.submitted:
     st.session_state.wrong_list = wrong_list
 
     st.success(f"점수: {score} / {quiz_len}")
+
     # ✅ FREE 제한 카운트 누적 (제출 1회 = quiz_len 소비)
     #    같은 제출 화면에서 rerun이 여러 번 나도 중복 누적되지 않도록 1회만 적용
     if "free_limit_applied_this_attempt" not in st.session_state:
@@ -3159,6 +3229,7 @@ if st.session_state.submitted:
     if not st.session_state.free_limit_applied_this_attempt:
         add_free_used(quiz_len)  # 보통 10
         st.session_state.free_limit_applied_this_attempt = True
+
     ratio = score / quiz_len if quiz_len else 0
 
     if ratio == 1:
@@ -3221,12 +3292,24 @@ if st.session_state.submitted:
         except Exception:
             pass
 
-# ============================================================
-# ✅ 제출 후 화면 내부 "오답노트" 블록을 아래로 교체하세요.
-#   (기존 st.markdown(textwrap.dedent(card_html), ...) 부분 제거)
-# ============================================================
-if st.session_state.wrong_list:
-    st.subheader("❌ 오답 노트")
+    # ============================================================
+    # ✅ 콤보 계산 (⚠️ 반드시 제출 후에만)
+    # ============================================================
+    correct_flags = []
+    for idx, q in enumerate(st.session_state.quiz):
+        picked = st.session_state.answers[idx]
+        correct = q["correct_text"]
+        correct_flags.append(picked == correct)
+
+    max_combo = compute_max_combo(correct_flags)
+    render_combo_celebration(max_combo)
+    render_combo_small_badge()
+
+    # ============================================================
+    # ✅ 제출 후 화면 내부 "오답노트" 블록
+    # ============================================================
+    if st.session_state.wrong_list:
+        st.subheader("❌ 오답 노트")
 
     def _s(v):
         return "" if v is None else str(v)
