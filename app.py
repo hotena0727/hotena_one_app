@@ -3163,70 +3163,75 @@ def render_today_goal_progress():
 
 # ✅ 원하는 위치(상단 1곳)에 “호출”
 render_today_goal_progress()
-
-# ✅ (추천) 무료 유저 안내는 상단에 1번만
-if not is_pro():
-    st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
-
 # ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
 # ============================================================
+# ✅ 무료 유저 안내는 상단 1번만
+if not is_pro():
+    st.caption("🔒 발음 듣기는 PRO에서 제공됩니다.")
+
 circled_nums = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
 
-for idx, q in enumerate(st.session_state.quiz):
-    badge = circled_nums[idx] if idx < len(circled_nums) else f"({idx+1})"
+quiz_len = len(st.session_state.quiz)
 
-    st.markdown(
-        f"""
+# ✅ 폼으로 감싸서 "보기 선택할 때마다" 전체 rerun되는 느낌을 줄임
+with st.form(key=f"quiz_form_{st.session_state.quiz_version}", clear_on_submit=False):
+
+    for idx, q in enumerate(st.session_state.quiz):
+        badge = circled_nums[idx] if idx < len(circled_nums) else f"({idx+1})"
+
+        st.markdown(
+            f"""
 <div class="jp" style="display:flex; align-items:baseline; gap:5px; margin: 10px 0 8px 0;">
-  <div style="
-    flex:0 0 auto;
-    font-size:20px;
-    line-height:1;
-    font-weight:900;
-    transform: translateY(1px);
-  ">{badge}</div>
-
-  <div style="
-    flex:1 1 auto;
-    font-size:18px;
-    font-weight:500;
-    line-height:1.35;
-  ">{q["prompt"]}</div>
+  <div style="flex:0 0 auto; font-size:20px; line-height:1; font-weight:900; transform: translateY(1px);">{badge}</div>
+  <div style="flex:1 1 auto; font-size:18px; font-weight:500; line-height:1.35;">{q["prompt"]}</div>
 </div>
 """,
-        unsafe_allow_html=True
-    )
+            unsafe_allow_html=True
+        )
 
-    if st.session_state.get("quiz_type") == "meaning":
-        tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
+        # ✅ PRO만 발음 버튼 렌더링
+        if st.session_state.get("quiz_type") == "meaning" and is_pro():
+            tts_text = (q.get("reading") or q.get("jp_word") or "").strip()
+            render_pronounce_button(tts_text, uid=f"{st.session_state.quiz_version}_{idx}", label="🔊 발음")
 
-        # ✅ PRO만 버튼 렌더링 (무료는 루프 안에서 아무것도 안 찍음)
-        if is_pro():
-            render_pronounce_button(
-                tts_text,
-                uid=f"{st.session_state.quiz_version}_{idx}",
-                label="🔊 발음"
-            )
+        widget_key = f"q_{st.session_state.quiz_version}_{idx}"
 
-    widget_key = f"q_{st.session_state.quiz_version}_{idx}"
+        prev = st.session_state.answers[idx]
+        default_index = None
+        if prev is not None and prev in q["choices"]:
+            default_index = q["choices"].index(prev)
 
-    prev = st.session_state.answers[idx]
-    default_index = None
-    if prev is not None and prev in q["choices"]:
-        default_index = q["choices"].index(prev)
+        # ✅ 핵심: on_change 제거 (클릭 즉시 콜백 부담 제거)
+        choice = st.radio(
+            label="보기",
+            options=q["choices"],
+            index=default_index,
+            key=widget_key,
+            label_visibility="collapsed",
+        )
+        st.session_state.answers[idx] = choice
 
-    choice = st.radio(
-        label="보기",
-        options=q["choices"],
-        index=default_index,
-        key=widget_key,
-        label_visibility="collapsed",
-        on_change=mark_progress_dirty,
-    )
-    st.session_state.answers[idx] = choice
+    # ✅ 제출 버튼은 폼 버튼으로
+    submitted_now = st.form_submit_button("✅ 제출하고 채점하기", use_container_width=True)
 
-sync_answers_from_widgets()
+# ✅ 제출 눌렀을 때만 검사/처리
+if submitted_now:
+    all_answered = (quiz_len > 0) and all(a is not None for a in st.session_state.answers)
+    if not all_answered:
+        st.info("모든 문제에 답을 선택하면 제출할 수 있습니다.")
+        st.stop()
+
+    st.session_state.submitted = True
+    st.session_state.session_stats_applied_this_attempt = False
+
+    # ✅ 중복 카운트 방지
+    if not st.session_state.get("_counted_today", False):
+        add_done_count(int(st.session_state.get("quiz_len", 10)))
+        st.session_state["_counted_today"] = True
+
+    # 여기부터 채점/오답노트/DB저장 로직 이어서 실행
+
 
 
 # ============================================================
