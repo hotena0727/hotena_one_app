@@ -2780,23 +2780,68 @@ if "today_goal_text" not in st.session_state:
 if "today_goal_done" not in st.session_state:
     st.session_state.today_goal_done = False
 
-with st.container():
-    st.markdown("### 🎯 오늘의 목표(루틴)")
-    c1, c2 = st.columns([7, 3])
-    with c1:
-        st.session_state.today_goal_text = st.text_input(
-            "목표 문장",
-            value=st.session_state.today_goal_text,
-            label_visibility="collapsed",
-            placeholder="예) 오늘은 명사 1회 + 동사 1회",
-        )
-    with c2:
-        st.session_state.today_goal_done = st.checkbox("달성", value=bool(st.session_state.today_goal_done))
+# ============================================================
+# ✅ [PATCH] 🎯 오늘 목표 자동 연동 (수동 체크 제거)
+# - 목표 1회=10문항, 2회=20문항...
+# - today_total(= total) 기준으로 자동 ✅달성/⏳진행중
+# ============================================================
 
-    if st.session_state.today_goal_done:
-        st.success("좋아요. 오늘 루틴 완료 ✅")
-    else:
-        st.caption("가볍게라도 체크하면 루틴이 끊기지 않습니다.")
+# ✅ 1) 목표(세션) 설정값
+if "goal_sessions" not in st.session_state:
+    st.session_state.goal_sessions = 1  # 기본 1회(=10문항)
+
+goal_sessions = st.segmented_control(
+    label="오늘 목표",
+    options=[1, 2, 3, 4],
+    format_func=lambda x: f"{x}회(= {x*10}문항)",
+    default=st.session_state.goal_sessions,
+    key="goal_sessions",
+)
+
+target_questions = int(goal_sessions) * 10
+
+# ✅ 2) 오늘 푼 문항수(기존 total 변수 재사용)
+today_total = int(total)  # ← 기존 코드에서 total이 "오늘 푼 문항"이면 그대로 OK
+
+goal_done = today_total >= target_questions
+goal_percent = min(100, int(today_total / max(1, target_questions) * 100))
+remain = max(0, target_questions - today_total)
+
+# ✅ 3) 자동 목표 UI
+st.markdown(
+    f"""
+<div class="jp" style="
+  border:1px solid rgba(120,120,120,0.18);
+  border-radius:18px;
+  padding:14px 14px;
+  background: rgba(255,255,255,0.03);
+  margin: 6px 0 10px 0;
+">
+  <div style="font-weight:900; font-size:14px; opacity:.75;">🎯 오늘 목표</div>
+
+  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+    <div style="font-size:13px; opacity:.85; font-weight:800;">
+      목표: <b>{target_questions}</b>문항
+    </div>
+    <div style="font-size:13px; opacity:.85; font-weight:800;">
+      진행: <b>{today_total}</b> / {target_questions}문항
+    </div>
+    <div style="font-size:13px; font-weight:900;">
+      {"✅ 달성" if goal_done else "⏳ 진행중"}
+    </div>
+  </div>
+
+  <div style="margin-top:10px; height:10px; border-radius:999px; background: rgba(255,255,255,0.10); overflow:hidden;">
+    <div style="height:100%; width:{goal_percent}%; background: rgba(255,255,255,0.55);"></div>
+  </div>
+
+  <div style="margin-top:8px; font-size:12px; opacity:.78;">
+    {("오늘 목표 달성! 내일도 루틴 이어가요 🔥" if goal_done else f"남은 문항: {remain}")}
+  </div>
+</div>
+""",
+    unsafe_allow_html=True
+)
 
 st.divider()
 
@@ -2820,6 +2865,8 @@ if "wrong_counter" not in st.session_state:
     st.session_state.wrong_counter = {}
 if "total_counter" not in st.session_state:
     st.session_state.total_counter = {}
+st.caption(f"[DEBUG] total={total}, type={type(total)}")
+st.caption(f"[DEBUG] quiz_len={len(st.session_state.get('quiz', []))}")
 
 ensure_mastered_words_shape()
 ensure_excluded_wrong_words_shape()
@@ -3066,12 +3113,34 @@ def _esc_html(x) -> str:
 # ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
 # ============================================================
 def get_today_goal_default() -> int:
-    return 30  # 기본 목표(원하면 10/20/50 등으로 바꾸세요)
+    return 1  # 기본 목표(원하면 10/20/50 등으로 바꾸세요)
 
 if "today_goal_num" not in st.session_state:
     st.session_state.today_goal_num = get_today_goal_default()
 
-goal = int(st.session_state.get("today_goal_num", get_today_goal_default()))
+# ✅ 목표 회차 선택 (1회=10문항)
+if "goal_sessions" not in st.session_state:
+    st.session_state.goal_sessions = get_today_goal_default()
+
+goal_sessions = st.segmented_control(
+    label="",
+    options=[1, 2, 3, 4],
+    format_func=lambda x: f"{x}회 ({x*10}문항)",
+    default=st.session_state.goal_sessions,
+    key="goal_sessions",
+)
+
+goal = int(goal_sessions) * 10
+done = get_today_done_count()
+
+ratio = 0.0 if goal <= 0 else min(max(done / goal, 0.0), 1.0)
+
+st.progress(ratio)
+st.caption(f"진행: **{done} / {goal}문항** ({int(ratio*100)}%)")
+
+if done >= goal:
+    st.success("🔥 오늘 목표 달성!")
+
 
 def get_today_done_count() -> int:
     # "오늘 푼 문항"을 세션에서 누적
