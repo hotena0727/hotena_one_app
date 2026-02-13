@@ -2853,6 +2853,9 @@ goal_done = today_total >= target_questions
 goal_percent = int(min(100, (today_total / max(1, target_questions)) * 100))
 remain = max(0, target_questions - today_total)
 
+goal_msg = "오늘 목표 달성! 내일도 루틴 이어가요 🔥" if goal_done else f"남은 문항: {remain}"
+
+
 # ✅ 3) 자동 목표 UI (진행률 도표 포함)
 st.markdown(
     f"""
@@ -2888,14 +2891,14 @@ st.markdown(
       <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.25);"></div>
     </div>
 
-    <div style="margin-top:8px; font-size:12px; opacity:.78;">
-      {("오늘 목표 달성! 내일도 루틴 이어가요 🔥" if goal_done else f"남은 문항: {remain}")}
-    </div>
+
   </div>
 </div>
 """,
     unsafe_allow_html=True
 )
+
+st.caption(goal_msg)
 
 st.divider()
 
