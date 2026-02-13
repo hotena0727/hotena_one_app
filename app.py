@@ -2867,37 +2867,68 @@ card_html = f"""
   background:#fff;
   box-shadow: 0 1px 0 rgba(0,0,0,.02);
   margin: 6px 0 10px 0;
-  font-family: inherit;
 ">
+
+  <!-- 헤더 -->
   <div style="display:flex; justify-content:space-between; align-items:center;">
-    <div style="font-weight:900; font-size:14px; opacity:.80;">🎯 오늘 목표</div>
-    <div style="font-size:12px; font-weight:900; opacity:.85;">
+    <div style="font-weight:900; font-size:14px; opacity:.82;">🎯 오늘 목표</div>
+
+    <!-- ✅ 달성 배지 형태로 -->
+    <div style="
+      font-size:12px; font-weight:900;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(49,51,63,.12);
+      background: rgba(0,0,0,0.03);
+      opacity:.9;
+      line-height:1;
+    ">
       {"✅ 달성" if goal_done else "⏳ 진행중"}
     </div>
   </div>
 
-  <div style="margin-top:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
-    <div style="font-size:13px; font-weight:800; opacity:.85;">
-      목표: <b>{target_questions}</b>문항
+  <!-- 스탯(좌: 목표/진행, 우: 퍼센트) -->
+  <div style="
+    margin-top:10px;
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    gap:12px;
+  ">
+    <div style="display:flex; gap:14px; flex-wrap:wrap;">
+      <div style="font-size:13px; font-weight:800; opacity:.88;">
+        목표: <b>{target_questions}</b>문항
+      </div>
+      <div style="font-size:13px; font-weight:800; opacity:.88;">
+        진행: <b>{today_total}</b> / {target_questions}문항
+      </div>
     </div>
-    <div style="font-size:13px; font-weight:800; opacity:.85;">
-      진행: <b>{today_total}</b> / {target_questions}문항
-    </div>
-    <div style="font-size:13px; font-weight:900; opacity:.85;">
+
+    <div style="font-size:14px; font-weight:900; opacity:.86; line-height:1;">
       {goal_percent}%
     </div>
   </div>
 
+  <!-- 프로그레스 바 -->
   <div style="margin-top:10px;">
-    <div style="height:10px; border-radius:999px; background: rgba(0,0,0,0.07); overflow:hidden;">
-      <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.25);"></div>
-    </div>
-
-    <div style="margin-top:10px; font-size:12.5px; opacity:.72; font-weight:700;">
-      {goal_msg}
+    <div style="
+      height:10px;
+      border-radius:999px;
+      background: rgba(0,0,0,0.08);
+      overflow:hidden;
+    ">
+      <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.28);"></div>
     </div>
   </div>
+
+  <!-- 메시지 -->
+  <div style="margin-top:10px; font-size:12.5px; opacity:.72; font-weight:700;">
+    {goal_msg}
+  </div>
+
 </div>
+"""
+
 """
 
 # height는 카드 높이에 맞춰 적당히
