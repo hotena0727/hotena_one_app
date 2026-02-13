@@ -2789,9 +2789,11 @@ if "today_goal_done" not in st.session_state:
     st.session_state.today_goal_done = False
 
 # ============================================================
-# ✅ [PATCH] 🎯 오늘 목표 자동 연동 (수동 체크 제거)
+# ✅ [PATCH] 🎯 오늘 목표 자동 연동 + 진행률 도표(프로그레스 바)
 # - 목표 1회=10문항, 2회=20문항...
 # - today_total(= total) 기준으로 자동 ✅달성/⏳진행중
+# - ✅ “오늘 목표” 박스 안에 진행률 도표 + % 표시
+# - ✅ 세그먼트 카드/목표 카드 톤(테두리/라운드/그림자) 통일
 # ============================================================
 
 st.markdown("""
@@ -2803,14 +2805,14 @@ div[data-testid="stSegmentedControl"]{
   border-radius: 14px;
   background: #fff;
   box-shadow: 0 1px 0 rgba(0,0,0,.02);
-  margin-bottom: 10px;   /* 아래 카드와 간격 */
+  margin-bottom: 10px;
 }
 
 /* 균등 분배 */
 div[data-testid="stSegmentedControl"] [role="group"]{
   display:flex !important;
   width:100% !important;
-  gap: 8px !important;   /* 버튼 사이 여백 */
+  gap: 8px !important;
 }
 
 /* 버튼(탭) 두께/라운드/정렬 */
@@ -2818,9 +2820,9 @@ div[data-testid="stSegmentedControl"] button{
   flex: 1 1 0 !important;
   min-width: 0 !important;
   text-align: center !important;
-  padding: 12px 10px !important;     /* ✅ 두께(높이) 키움 */
+  padding: 12px 10px !important;
   font-size: 15px !important;
-  border-radius: 12px !important;    /* ✅ 아래 카드 톤과 맞춤 */
+  border-radius: 12px !important;
   border: 1px solid rgba(49,51,63,.12) !important;
 }
 
@@ -2831,8 +2833,6 @@ div[data-testid="stSegmentedControl"] button[aria-pressed="true"]{
 }
 </style>
 """, unsafe_allow_html=True)
-
-
 
 # ✅ 1) 목표(세션) 설정값
 if "goal_sessions" not in st.session_state:
@@ -2852,39 +2852,47 @@ target_questions = int(goal_sessions) * 10
 today_total = int(total)  # ← 기존 코드에서 total이 "오늘 푼 문항"이면 그대로 OK
 
 goal_done = today_total >= target_questions
-goal_percent = min(100, int(today_total / max(1, target_questions) * 100))
+goal_percent = int(min(100, (today_total / max(1, target_questions)) * 100))
 remain = max(0, target_questions - today_total)
 
-# ✅ 3) 자동 목표 UI
+# ✅ 3) 자동 목표 UI (진행률 도표 포함)
 st.markdown(
     f"""
 <div class="jp" style="
-  border:1px solid rgba(120,120,120,0.18);
+  border:1px solid rgba(49,51,63,.12);
   border-radius:18px;
   padding:14px 14px;
-  background: rgba(255,255,255,0.03);
+  background:#fff;
+  box-shadow: 0 1px 0 rgba(0,0,0,.02);
   margin: 6px 0 10px 0;
 ">
-  <div style="font-weight:900; font-size:14px; opacity:.75;">🎯 오늘 목표</div>
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <div style="font-weight:900; font-size:14px; opacity:.80;">🎯 오늘 목표</div>
+    <div style="font-size:12px; font-weight:900; opacity:.85;">
+      {("✅ 달성" if goal_done else "⏳ 진행중")}
+    </div>
+  </div>
 
-  <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-    <div style="font-size:13px; opacity:.85; font-weight:800;">
+  <div style="margin-top:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center;">
+    <div style="font-size:13px; font-weight:800; opacity:.85;">
       목표: <b>{target_questions}</b>문항
     </div>
-    <div style="font-size:13px; opacity:.85; font-weight:800;">
+    <div style="font-size:13px; font-weight:800; opacity:.85;">
       진행: <b>{today_total}</b> / {target_questions}문항
     </div>
-    <div style="font-size:13px; font-weight:900;">
-      {"✅ 달성" if goal_done else "⏳ 진행중"}
+    <div style="font-size:13px; font-weight:900; opacity:.85;">
+      {goal_percent}%
     </div>
   </div>
 
-  <div style="margin-top:10px; height:10px; border-radius:999px; background: rgba(255,255,255,0.10); overflow:hidden;">
-    <div style="height:100%; width:{goal_percent}%; background: rgba(255,255,255,0.55);"></div>
-  </div>
+  <div style="margin-top:10px;">
+    <div style="height:10px; border-radius:999px; background: rgba(0,0,0,0.07); overflow:hidden;">
+      <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.25);"></div>
+    </div>
 
-  <div style="margin-top:8px; font-size:12px; opacity:.78;">
-    {("오늘 목표 달성! 내일도 루틴 이어가요 🔥" if goal_done else f"남은 문항: {remain}")}
+    <div style="margin-top:8px; font-size:12px; opacity:.78;">
+      {("오늘 목표 달성! 내일도 루틴 이어가요 🔥" if goal_done else f"남은 문항: {remain}")}
+    </div>
   </div>
 </div>
 """,
@@ -2892,6 +2900,10 @@ st.markdown(
 )
 
 st.divider()
+
+# ============================================================
+# ✅ 이하: 기존 세션 상태 초기화/shape ensure (그대로 유지)
+# ============================================================
 
 if "quiz_version" not in st.session_state:
     st.session_state.quiz_version = 0
@@ -2917,6 +2929,7 @@ if "total_counter" not in st.session_state:
 ensure_mastered_words_shape()
 ensure_excluded_wrong_words_shape()
 ensure_mastery_banner_shape()
+
 
 # ============================================================
 # ✅ 상단 UI: 품사 버튼 → (기타 expander + 적용 버튼) → 유형 버튼 → 캡션 → divider
