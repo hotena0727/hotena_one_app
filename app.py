@@ -2303,6 +2303,189 @@ def render_home():
                   key="btn_home_logout", on_click=nav_logout)
 
 # ============================================================
+# ✅ 오늘의 학습 리포트 (DB only / quiz_attempts 기반)
+#   - 로그인 유저만 표시
+#   - 오늘 푼 문항 / 정답률 / 오늘 오답 / 연속 학습(streak)
+#   - 가장 많이 틀린 모드(pos_mode)
+# ============================================================
+
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from collections import Counter
+import html
+import streamlit as st
+
+KST = ZoneInfo("Asia/Seoul")
+
+def _parse_dt_any(x) -> datetime | None:
+    """Supabase created_at 파싱(ISO 문자열/datetime 모두 대응)."""
+    if x is None:
+        return None
+    if isinstance(x, datetime):
+        dt = x
+    else:
+        s = str(x).replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+        except Exception:
+            return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+def fetch_attempts_between(supabase, user_id: str, start_utc: datetime, end_utc: datetime) -> list[dict]:
+    """기간 내 attempts 가져오기 (created_at은 보통 UTC timestamptz)."""
+    try:
+        res = (
+            supabase.table("quiz_attempts")
+            .select("created_at, quiz_len, score, wrong_count, pos_mode")
+            .eq("user_id", user_id)
+            .gte("created_at", start_utc.isoformat())
+            .lt("created_at", end_utc.isoformat())
+            .order("created_at", desc=False)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
+
+def _kst_day_key(dt_utc: datetime) -> str:
+    """UTC dt -> KST 날짜키(YYYY-MM-DD)."""
+    k = dt_utc.astimezone(KST)
+    return k.strftime("%Y-%m-%d")
+
+def build_today_report_from_rows(today_rows: list[dict], recent_rows: list[dict]) -> dict:
+    # ✅ 오늘 집계
+    today_total = 0
+    today_correct = 0
+    today_wrong = 0
+    wrong_mode_counter = Counter()
+
+    for r in (today_rows or []):
+        qlen = int(r.get("quiz_len") or 0)
+        score = int(r.get("score") or 0)
+
+        wc_raw = r.get("wrong_count")
+        if wc_raw is None or wc_raw == "":
+            wc = max(0, qlen - score)
+        else:
+            wc = int(wc_raw or 0)
+
+        mode = str(r.get("pos_mode") or "-")
+
+        today_total += qlen
+        today_correct += score
+        today_wrong += wc
+
+        if wc > 0:
+            wrong_mode_counter[mode] += wc
+
+    accuracy = 0
+    if today_total > 0:
+        accuracy = int(round((today_correct / today_total) * 100))
+
+    top_wrong_mode = "-"
+    if wrong_mode_counter:
+        top_wrong_mode = wrong_mode_counter.most_common(1)[0][0]
+
+    # ✅ 연속 학습(streak)
+    day_has = set()
+    for r in (recent_rows or []):
+        dt = _parse_dt_any(r.get("created_at"))
+        if not dt:
+            continue
+        day_has.add(_kst_day_key(dt))
+
+    streak = 0
+    cur = datetime.now(KST).date()
+    for _ in range(90):  # 최대 90일만 체크
+        key = cur.strftime("%Y-%m-%d")
+        if key in day_has:
+            streak += 1
+            cur = cur - timedelta(days=1)
+        else:
+            break
+
+    return {
+        "today_total": int(today_total),
+        "today_correct": int(today_correct),
+        "today_wrong": int(today_wrong),
+        "accuracy": int(accuracy),
+        "top_wrong_mode": str(top_wrong_mode),
+        "streak": int(streak),
+    }
+
+def render_today_report_db_only(sb_authed, user_id: str):
+    """한 방에: fetch -> build -> render (DB only)"""
+    try:
+        now_kst = datetime.now(KST)
+        start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_kst = start_kst + timedelta(days=1)
+
+        # DB는 UTC timestamptz인 경우가 많으니 UTC로 변환해서 조회
+        start_utc = start_kst.astimezone(timezone.utc)
+        end_utc = end_kst.astimezone(timezone.utc)
+
+        today_rows = fetch_attempts_between(sb_authed, user_id, start_utc, end_utc)
+
+        # streak 계산용 최근 60일
+        recent_start_utc = (start_kst - timedelta(days=60)).astimezone(timezone.utc)
+        recent_rows = fetch_attempts_between(sb_authed, user_id, recent_start_utc, end_utc)
+
+        rep = build_today_report_from_rows(today_rows, recent_rows)
+
+        total = rep["today_total"]
+        acc = rep["accuracy"]
+        wrong = rep["today_wrong"]
+        streak = rep["streak"]
+        top_mode = rep["top_wrong_mode"]
+
+        # 오늘 학습 없으면 조용히
+        if total <= 0:
+            st.caption("오늘의 학습 리포트: 아직 학습 기록이 없어요 🙂")
+            return
+
+        st.markdown(
+            f"""
+<div class="jp" style="
+  border:1px solid rgba(120,120,120,0.18);
+  border-radius:18px;
+  padding:14px 14px;
+  background: rgba(255,255,255,0.03);
+  margin: 6px 0 10px 0;
+">
+  <div style="font-weight:900; font-size:14px; opacity:.75;">📈 오늘의 학습 리포트</div>
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
+    <div style="flex:1 1 120px; min-width:120px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 푼 문항</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{total}</div>
+    </div>
+    <div style="flex:1 1 120px; min-width:120px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">정답률</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{acc}%</div>
+    </div>
+    <div style="flex:1 1 120px; min-width:120px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 오답</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{wrong}</div>
+    </div>
+    <div style="flex:1 1 160px; min-width:160px;">
+      <div style="font-size:12px; opacity:.7; font-weight:800;">연속 학습</div>
+      <div style="font-size:22px; font-weight:900; line-height:1.1;">{streak}일</div>
+    </div>
+  </div>
+  <div style="margin-top:8px; font-size:12px; opacity:.78; line-height:1.4;">
+    오늘 가장 많이 틀린 모드: <b>{html.escape(str(top_mode))}</b>
+  </div>
+</div>
+""",
+            unsafe_allow_html=True,
+        )
+
+    except Exception:
+        # 리포트가 실패해도 앱이 멈추면 안 됨
+        st.caption("오늘 리포트를 불러오지 못했어요.")
+# ============================================================
 # ✅ App Start: refresh → login → routing
 # ============================================================
 ok = refresh_session_from_cookie_if_needed(force=False)
@@ -2771,191 +2954,6 @@ def _esc_html(x) -> str:
              .replace(">", "&gt;")
              .replace('"', "&quot;")
              .replace("'", "&#39;"))
-
-# ============================================================
-# ✅ 오늘의 학습 리포트 (DB only / quiz_attempts 기반)
-#   - 로그인 유저만 표시
-#   - 오늘 푼 문항 / 정답률 / 오늘 오답 / 연속 학습(streak)
-#   - 가장 많이 틀린 모드(pos_mode)
-# ============================================================
-
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
-from collections import Counter
-import html
-import streamlit as st
-
-KST = ZoneInfo("Asia/Seoul")
-
-def _parse_dt_any(x) -> datetime | None:
-    """Supabase created_at 파싱(ISO 문자열/datetime 모두 대응)."""
-    if x is None:
-        return None
-    if isinstance(x, datetime):
-        dt = x
-    else:
-        s = str(x).replace("Z", "+00:00")
-        try:
-            dt = datetime.fromisoformat(s)
-        except Exception:
-            return None
-
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-def fetch_attempts_between(supabase, user_id: str, start_utc: datetime, end_utc: datetime) -> list[dict]:
-    """기간 내 attempts 가져오기 (created_at은 보통 UTC timestamptz)."""
-    try:
-        res = (
-            supabase.table("quiz_attempts")
-            .select("created_at, quiz_len, score, wrong_count, pos_mode")
-            .eq("user_id", user_id)
-            .gte("created_at", start_utc.isoformat())
-            .lt("created_at", end_utc.isoformat())
-            .order("created_at", desc=False)
-            .execute()
-        )
-        return res.data or []
-    except Exception:
-        return []
-
-def _kst_day_key(dt_utc: datetime) -> str:
-    """UTC dt -> KST 날짜키(YYYY-MM-DD)."""
-    k = dt_utc.astimezone(KST)
-    return k.strftime("%Y-%m-%d")
-
-def build_today_report_from_rows(today_rows: list[dict], recent_rows: list[dict]) -> dict:
-    # ✅ 오늘 집계
-    today_total = 0
-    today_correct = 0
-    today_wrong = 0
-    wrong_mode_counter = Counter()
-
-    for r in (today_rows or []):
-        qlen = int(r.get("quiz_len") or 0)
-        score = int(r.get("score") or 0)
-
-        wc_raw = r.get("wrong_count")
-        if wc_raw is None or wc_raw == "":
-            wc = max(0, qlen - score)
-        else:
-            wc = int(wc_raw or 0)
-
-        mode = str(r.get("pos_mode") or "-")
-
-        today_total += qlen
-        today_correct += score
-        today_wrong += wc
-
-        if wc > 0:
-            wrong_mode_counter[mode] += wc
-
-    accuracy = 0
-    if today_total > 0:
-        accuracy = int(round((today_correct / today_total) * 100))
-
-    top_wrong_mode = "-"
-    if wrong_mode_counter:
-        top_wrong_mode = wrong_mode_counter.most_common(1)[0][0]
-
-    # ✅ 연속 학습(streak)
-    day_has = set()
-    for r in (recent_rows or []):
-        dt = _parse_dt_any(r.get("created_at"))
-        if not dt:
-            continue
-        day_has.add(_kst_day_key(dt))
-
-    streak = 0
-    cur = datetime.now(KST).date()
-    for _ in range(90):  # 최대 90일만 체크
-        key = cur.strftime("%Y-%m-%d")
-        if key in day_has:
-            streak += 1
-            cur = cur - timedelta(days=1)
-        else:
-            break
-
-    return {
-        "today_total": int(today_total),
-        "today_correct": int(today_correct),
-        "today_wrong": int(today_wrong),
-        "accuracy": int(accuracy),
-        "top_wrong_mode": str(top_wrong_mode),
-        "streak": int(streak),
-    }
-
-def render_today_report_db_only(sb_authed, user_id: str):
-    """한 방에: fetch -> build -> render (DB only)"""
-    try:
-        now_kst = datetime.now(KST)
-        start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_kst = start_kst + timedelta(days=1)
-
-        # DB는 UTC timestamptz인 경우가 많으니 UTC로 변환해서 조회
-        start_utc = start_kst.astimezone(timezone.utc)
-        end_utc = end_kst.astimezone(timezone.utc)
-
-        today_rows = fetch_attempts_between(sb_authed, user_id, start_utc, end_utc)
-
-        # streak 계산용 최근 60일
-        recent_start_utc = (start_kst - timedelta(days=60)).astimezone(timezone.utc)
-        recent_rows = fetch_attempts_between(sb_authed, user_id, recent_start_utc, end_utc)
-
-        rep = build_today_report_from_rows(today_rows, recent_rows)
-
-        total = rep["today_total"]
-        acc = rep["accuracy"]
-        wrong = rep["today_wrong"]
-        streak = rep["streak"]
-        top_mode = rep["top_wrong_mode"]
-
-        # 오늘 학습 없으면 조용히
-        if total <= 0:
-            st.caption("오늘의 학습 리포트: 아직 학습 기록이 없어요 🙂")
-            return
-
-        st.markdown(
-            f"""
-<div class="jp" style="
-  border:1px solid rgba(120,120,120,0.18);
-  border-radius:18px;
-  padding:14px 14px;
-  background: rgba(255,255,255,0.03);
-  margin: 6px 0 10px 0;
-">
-  <div style="font-weight:900; font-size:14px; opacity:.75;">📈 오늘의 학습 리포트</div>
-  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px;">
-    <div style="flex:1 1 120px; min-width:120px;">
-      <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 푼 문항</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{total}</div>
-    </div>
-    <div style="flex:1 1 120px; min-width:120px;">
-      <div style="font-size:12px; opacity:.7; font-weight:800;">정답률</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{acc}%</div>
-    </div>
-    <div style="flex:1 1 120px; min-width:120px;">
-      <div style="font-size:12px; opacity:.7; font-weight:800;">오늘 오답</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{wrong}</div>
-    </div>
-    <div style="flex:1 1 160px; min-width:160px;">
-      <div style="font-size:12px; opacity:.7; font-weight:800;">연속 학습</div>
-      <div style="font-size:22px; font-weight:900; line-height:1.1;">{streak}일</div>
-    </div>
-  </div>
-  <div style="margin-top:8px; font-size:12px; opacity:.78; line-height:1.4;">
-    오늘 가장 많이 틀린 모드: <b>{html.escape(str(top_mode))}</b>
-  </div>
-</div>
-""",
-            unsafe_allow_html=True,
-        )
-
-    except Exception:
-        # 리포트가 실패해도 앱이 멈추면 안 됨
-        st.caption("오늘 리포트를 불러오지 못했어요.")
-
 
 # ============================================================
 # ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
