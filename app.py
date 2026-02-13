@@ -2796,16 +2796,18 @@ if "today_goal_done" not in st.session_state:
 
 st.markdown("""
 <style>
-/* 오늘 목표 segmented_control 한 줄 균등 분배 */
+/* 균등 분배 */
 div[data-testid="stSegmentedControl"] [role="group"]{
     display: flex !important;
     width: 100% !important;
 }
 
 div[data-testid="stSegmentedControl"] button{
-    flex: 1 1 0 !important;      /* ✅ 핵심: 동일 비율 */
+    flex: 1 1 0 !important;
     min-width: 0 !important;
     text-align: center !important;
+    padding: 10px 12px !important;   /* 세로 조금 키움 */
+    font-size: 15px !important;
 }
 </style>
 """, unsafe_allow_html=True)
