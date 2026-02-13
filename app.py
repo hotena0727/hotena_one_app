@@ -2742,127 +2742,107 @@ def _esc_html(x) -> str:
              .replace("'", "&#39;"))
 
 # ============================================================
-# ✅ 오늘의 학습 리포트 (DB 전용 / Supabase quiz_attempts 기반)
+# ✅ 오늘의 학습 리포트 (DB only / quiz_attempts 기반)
+#   - 로그인한 유저만 표시
+#   - 오늘 푼 문항 / 정답률 / 오늘 오답 / 연속 학습(streak)
+#   - 가장 많이 틀린 pos/모드 (pos_mode)
 # ============================================================
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from collections import Counter
 
-KST = timezone(timedelta(hours=9))
+KST = ZoneInfo("Asia/Seoul")
 
-def _parse_iso_dt(s: str) -> datetime | None:
-    if not s:
+def _parse_dt_any(x) -> datetime | None:
+    """Supabase created_at 파싱(ISO 문자열/datetime 모두 대응)."""
+    if x is None:
         return None
-    try:
-        if s.endswith("Z"):
-            s = s[:-1] + "+00:00"
-        return datetime.fromisoformat(s)
-    except Exception:
-        return None
+    if isinstance(x, datetime):
+        dt = x
+    else:
+        s = str(x)
+        # e.g. "2026-02-13T00:12:34.123Z" / "+00:00" 등
+        s = s.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(s)
+        except Exception:
+            return None
 
-def _kst_today_range_utc_iso() -> tuple[str, str]:
-    """KST 오늘 00:00~내일 00:00 을 UTC ISO 문자열로 변환"""
-    now_kst = datetime.now(KST)
-    start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_kst = start_kst + timedelta(days=1)
-    return (
-        start_kst.astimezone(timezone.utc).isoformat(),
-        end_kst.astimezone(timezone.utc).isoformat(),
-    )
+    # tz 없는 경우 UTC로 가정
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
-def _compute_streak_kst(dates_set: set[date]) -> int:
-    """KST 날짜 집합으로 오늘 기준 연속학습 일수 계산"""
-    if not dates_set:
-        return 0
-    today = datetime.now(KST).date()
-    streak = 0
-    d = today
-    while d in dates_set:
-        streak += 1
-        d = d - timedelta(days=1)
-    return streak
-
-def fetch_today_attempts(supabase, user_id: str) -> list[dict]:
-    """오늘(한국시간) 기록만 가져오기"""
-    start_utc, end_utc = _kst_today_range_utc_iso()
-
-    # ✅ pos 컬럼명은 앱마다 다를 수 있어서 둘 다 시도
-    # 1) pos_mode
+def fetch_attempts_between(supabase, user_id: str, start_utc: datetime, end_utc: datetime):
+    """기간 내 attempts 가져오기 (created_at은 보통 UTC)."""
     try:
         res = (
             supabase.table("quiz_attempts")
-            .select("quiz_len,score,wrong_count,pos_mode,created_at")
+            .select("created_at, quiz_len, score, wrong_count, pos_mode")
             .eq("user_id", user_id)
-            .gte("created_at", start_utc)
-            .lt("created_at", end_utc)
-            .execute()
-        )
-        return res.data or []
-    except Exception:
-        pass
-
-    # 2) pos_group fallback
-    try:
-        res = (
-            supabase.table("quiz_attempts")
-            .select("quiz_len,score,wrong_count,pos_group,created_at")
-            .eq("user_id", user_id)
-            .gte("created_at", start_utc)
-            .lt("created_at", end_utc)
+            .gte("created_at", start_utc.isoformat())
+            .lt("created_at", end_utc.isoformat())
+            .order("created_at", desc=False)
             .execute()
         )
         return res.data or []
     except Exception:
         return []
 
-def build_today_report_from_rows(rows: list[dict]) -> dict:
-    """rows -> 리포트 집계"""
-    if not rows:
-        return {
-            "today_total": 0,
-            "today_correct": 0,
-            "today_wrong": 0,
-            "accuracy": 0,
-            "top_wrong_pos": "-",
-            "streak": 0,
-        }
+def build_today_report_from_rows(today_rows: list[dict], recent_rows: list[dict]) -> dict:
+    # ✅ 오늘 집계
+    today_total = 0
+    today_correct = 0
+    today_wrong = 0
+    wrong_pos_counter = Counter()
 
-    total = correct = wrong = 0
-    wrong_by_pos = {}
-    dates_set = set()
-
-    for r in rows:
+    for r in today_rows:
         qlen = int(r.get("quiz_len") or 0)
-        sc = int(r.get("score") or 0)
-        wc = int(r.get("wrong_count") or 0)
+        score = int(r.get("score") or 0)
+        wc = int(r.get("wrong_count") or max(0, qlen - score))
+        pos_mode = (r.get("pos_mode") or "-")
 
-        total += qlen
-        correct += sc
-        wrong += wc
+        today_total += qlen
+        today_correct += score
+        today_wrong += wc
 
-        pos = r.get("pos_mode") or r.get("pos_group") or "-"
-        wrong_by_pos[pos] = wrong_by_pos.get(pos, 0) + wc
+        # "많이 틀린 pos/모드"는 오답이 있는 세트에 가중치 부여
+        if wc > 0:
+            wrong_pos_counter[pos_mode] += wc
 
-        dt = _parse_iso_dt(r.get("created_at"))
-        if dt:
-            dates_set.add(dt.astimezone(KST).date())
+    accuracy = 0
+    if today_total > 0:
+        accuracy = int(round((today_correct / today_total) * 100))
 
     top_wrong_pos = "-"
-    if wrong_by_pos:
-        top_wrong_pos = max(wrong_by_pos.items(), key=lambda x: x[1])[0]
+    if wrong_pos_counter:
+        top_wrong_pos = wrong_pos_counter.most_common(1)[0][0]
 
-    accuracy = int(round((correct / total) * 100)) if total else 0
-    streak = _compute_streak_kst(dates_set)
+    # ✅ 연속 학습(streak): 최근 N일 중 "attempt가 있는 날" 연속 계산
+    # 오늘부터 거꾸로 내려가며 attempt가 있는 날짜가 끊길 때까지
+    day_has = set()
+    for r in recent_rows:
+        dt = _parse_dt_any(r.get("created_at"))
+        if not dt:
+            continue
+        day_kst = dt.astimezone(KST).date()
+        day_has.add(day_kst)
+
+    streak = 0
+    d = datetime.now(KST).date()
+    while d in day_has:
+        streak += 1
+        d = d - timedelta(days=1)
 
     return {
-        "today_total": total,
-        "today_correct": correct,
-        "today_wrong": wrong,
+        "today_total": today_total,
+        "today_wrong": today_wrong,
         "accuracy": accuracy,
-        "top_wrong_pos": top_wrong_pos,
         "streak": streak,
+        "top_wrong_pos": top_wrong_pos,
     }
 
 def render_today_report(report: dict):
-    """UI 출력"""
     st.markdown("### 📊 오늘의 학습 리포트")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("오늘 푼 문항", f"{report.get('today_total', 0)}")
@@ -2874,10 +2854,30 @@ def render_today_report(report: dict):
 
 def render_today_report_db_only(supabase, user_id: str):
     """한 방에: fetch -> build -> render"""
-    rows = fetch_today_attempts(supabase, user_id)
-    report = build_today_report_from_rows(rows)
+    now_kst = datetime.now(KST)
+    start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_kst = start_kst + timedelta(days=1)
+
+    # created_at이 UTC라고 가정하고 UTC로 변환해 질의
+    start_utc = start_kst.astimezone(timezone.utc)
+    end_utc = end_kst.astimezone(timezone.utc)
+
+    # streak 계산용: 최근 60일 정도만 가져오면 충분
+    recent_start_utc = (start_kst - timedelta(days=60)).astimezone(timezone.utc)
+
+    today_rows = fetch_attempts_between(supabase, user_id, start_utc, end_utc)
+    recent_rows = fetch_attempts_between(supabase, user_id, recent_start_utc, end_utc)
+
+    report = build_today_report_from_rows(today_rows, recent_rows)
     render_today_report(report)
 
+def render_today_report_db_only(supabase, user_id: str):
+    ...
+    render_today_report(report)
+
+# ✅ 로그인 유저일 때만 오늘 리포트 표시  ← 여기!
+if st.session_state.get("user_id"):
+    render_today_report_db_only(sb, st.session_state["user_id"])
 
 # ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
