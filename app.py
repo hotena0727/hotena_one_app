@@ -2886,19 +2886,15 @@ st.markdown(
     </div>
   </div>
 
-  <div style="margin-top:10px;">
-    <div style="height:10px; border-radius:999px; background: rgba(0,0,0,0.07); overflow:hidden;">
-      <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.25);"></div>
+ <!-- ✅ 문구를 박스 안에 다시 넣기 -->
+    <div style="margin-top:10px; font-size:12.5px; opacity:.72; font-weight:700;">
+      {goal_msg}
     </div>
-
-
   </div>
 </div>
 """,
     unsafe_allow_html=True
 )
-
-st.caption(goal_msg)
 
 st.divider()
 
