@@ -3180,6 +3180,13 @@ def _esc_html(x) -> str:
 # ✅ 오늘 목표(Progress) - 세션 기반 (DB 없이)
 # ============================================================
 
+SHOW_BOTTOM_GOAL = False
+
+if SHOW_BOTTOM_GOAL:
+    st.markdown("## 🎯 오늘 목표 진행률")
+    st.progress(goal_percent / 100)
+    st.caption(f"진행: {today_total} / {target_questions}문항 ({goal_percent}%)")
+    
 def get_today_done_count() -> int:
     return int(st.session_state.get("today_done", 0))
 
