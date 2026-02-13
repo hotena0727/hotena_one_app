@@ -901,8 +901,14 @@ def get_user_plan() -> str:
     return plan
 
 def is_pro() -> bool:
-    # 예시: 로그인 유저 프로필에서 is_pro 가져오는 방식
     p = st.session_state.get("profile") or {}
+
+    # profiles.plan 컬럼을 기준으로 판단
+    plan = str(p.get("plan", "")).strip().lower()
+    if plan == "pro":
+        return True
+
+    # (옵션) 이전 호환: is_pro를 쓰던 시절 데이터도 인정
     return bool(p.get("is_pro", False))
     
 def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: str, pos: str) -> list[dict]:
@@ -2679,10 +2685,8 @@ if "quiz" not in st.session_state or not isinstance(st.session_state.quiz, list)
 
 is_mastered_done = bool(st.session_state.get("mastery_done", {}).get(k_now, False))
 if (not is_mastered_done) and len(st.session_state.quiz) == 0:
-    if free_limit_reached():
-        st.warning("무료는 하루 30문항(3세트)까지입니다. 오늘은 여기까지! 🙂")
-        st.caption("PRO로 업그레이드하면 계속 풀 수 있어요.")
-        # ✅ stop은 OK (여긴 '퀴즈 생성' 자체를 막는 게 목적)
+    if is_locked:
+        render_paywall(daily_solved)
         st.stop()
 
     clear_question_widget_keys()
