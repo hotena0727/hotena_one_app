@@ -2857,8 +2857,9 @@ goal_msg = "오늘 목표 달성! 내일도 루틴 이어가요 🔥" if goal_do
 
 
 # ✅ 3) 자동 목표 UI (진행률 도표 포함)
-st.markdown(
-    f"""
+import streamlit.components.v1 as components
+
+card_html = f"""
 <div class="jp" style="
   border:1px solid rgba(49,51,63,.12);
   border-radius:18px;
@@ -2866,6 +2867,7 @@ st.markdown(
   background:#fff;
   box-shadow: 0 1px 0 rgba(0,0,0,.02);
   margin: 6px 0 10px 0;
+  font-family: inherit;
 ">
   <div style="display:flex; justify-content:space-between; align-items:center;">
     <div style="font-weight:900; font-size:14px; opacity:.80;">🎯 오늘 목표</div>
@@ -2886,7 +2888,6 @@ st.markdown(
     </div>
   </div>
 
-  <!-- ✅ 진행률 바 + 문구를 "같은 묶음"으로 -->
   <div style="margin-top:10px;">
     <div style="height:10px; border-radius:999px; background: rgba(0,0,0,0.07); overflow:hidden;">
       <div style="height:100%; width:{goal_percent}%; background: rgba(0,0,0,0.25);"></div>
@@ -2897,9 +2898,11 @@ st.markdown(
     </div>
   </div>
 </div>
-""",
-    unsafe_allow_html=True
-)
+"""
+
+# height는 카드 높이에 맞춰 적당히
+components.html(card_html, height=140)
+
 
 st.divider()
 
