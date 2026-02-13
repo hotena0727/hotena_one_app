@@ -2718,6 +2718,144 @@ def _esc_html(x) -> str:
              .replace("'", "&#39;"))
 
 # ============================================================
+# ✅ 오늘의 학습 리포트 (DB 전용 / Supabase quiz_attempts 기반)
+# ============================================================
+from datetime import datetime, timedelta, timezone, date
+
+KST = timezone(timedelta(hours=9))
+
+def _parse_iso_dt(s: str) -> datetime | None:
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+def _kst_today_range_utc_iso() -> tuple[str, str]:
+    """KST 오늘 00:00~내일 00:00 을 UTC ISO 문자열로 변환"""
+    now_kst = datetime.now(KST)
+    start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_kst = start_kst + timedelta(days=1)
+    return (
+        start_kst.astimezone(timezone.utc).isoformat(),
+        end_kst.astimezone(timezone.utc).isoformat(),
+    )
+
+def _compute_streak_kst(dates_set: set[date]) -> int:
+    """KST 날짜 집합으로 오늘 기준 연속학습 일수 계산"""
+    if not dates_set:
+        return 0
+    today = datetime.now(KST).date()
+    streak = 0
+    d = today
+    while d in dates_set:
+        streak += 1
+        d = d - timedelta(days=1)
+    return streak
+
+def fetch_today_attempts(supabase, user_id: str) -> list[dict]:
+    """오늘(한국시간) 기록만 가져오기"""
+    start_utc, end_utc = _kst_today_range_utc_iso()
+
+    # ✅ pos 컬럼명은 앱마다 다를 수 있어서 둘 다 시도
+    # 1) pos_mode
+    try:
+        res = (
+            supabase.table("quiz_attempts")
+            .select("quiz_len,score,wrong_count,pos_mode,created_at")
+            .eq("user_id", user_id)
+            .gte("created_at", start_utc)
+            .lt("created_at", end_utc)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        pass
+
+    # 2) pos_group fallback
+    try:
+        res = (
+            supabase.table("quiz_attempts")
+            .select("quiz_len,score,wrong_count,pos_group,created_at")
+            .eq("user_id", user_id)
+            .gte("created_at", start_utc)
+            .lt("created_at", end_utc)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
+
+def build_today_report_from_rows(rows: list[dict]) -> dict:
+    """rows -> 리포트 집계"""
+    if not rows:
+        return {
+            "today_total": 0,
+            "today_correct": 0,
+            "today_wrong": 0,
+            "accuracy": 0,
+            "top_wrong_pos": "-",
+            "streak": 0,
+        }
+
+    total = correct = wrong = 0
+    wrong_by_pos = {}
+    dates_set = set()
+
+    for r in rows:
+        qlen = int(r.get("quiz_len") or 0)
+        sc = int(r.get("score") or 0)
+        wc = int(r.get("wrong_count") or 0)
+
+        total += qlen
+        correct += sc
+        wrong += wc
+
+        pos = r.get("pos_mode") or r.get("pos_group") or "-"
+        wrong_by_pos[pos] = wrong_by_pos.get(pos, 0) + wc
+
+        dt = _parse_iso_dt(r.get("created_at"))
+        if dt:
+            dates_set.add(dt.astimezone(KST).date())
+
+    top_wrong_pos = "-"
+    if wrong_by_pos:
+        top_wrong_pos = max(wrong_by_pos.items(), key=lambda x: x[1])[0]
+
+    accuracy = int(round((correct / total) * 100)) if total else 0
+    streak = _compute_streak_kst(dates_set)
+
+    return {
+        "today_total": total,
+        "today_correct": correct,
+        "today_wrong": wrong,
+        "accuracy": accuracy,
+        "top_wrong_pos": top_wrong_pos,
+        "streak": streak,
+    }
+
+def render_today_report(report: dict):
+    """UI 출력"""
+    st.markdown("### 📊 오늘의 학습 리포트")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("오늘 푼 문항", f"{report.get('today_total', 0)}")
+    c2.metric("정답률", f"{report.get('accuracy', 0)}%")
+    c3.metric("오늘 오답", f"{report.get('today_wrong', 0)}")
+    c4.metric("연속 학습", f"{report.get('streak', 0)}일")
+    st.caption(f"❗ 가장 많이 틀린 품사/모드: **{report.get('top_wrong_pos', '-') }**")
+    st.divider()
+
+def render_today_report_db_only(supabase, user_id: str):
+    """한 방에: fetch -> build -> render"""
+    rows = fetch_today_attempts(supabase, user_id)
+    report = build_today_report_from_rows(rows)
+    render_today_report(report)
+
+
+# ============================================================
 # ✅ 문제 표시 (동그란 배지: ① ② ③ ... + 같은 줄)
 # ============================================================
 circled_nums = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺㊻㊼㊽㊾㊿"
