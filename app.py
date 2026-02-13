@@ -2794,6 +2794,23 @@ if "today_goal_done" not in st.session_state:
 # - today_total(= total) 기준으로 자동 ✅달성/⏳진행중
 # ============================================================
 
+st.markdown("""
+<style>
+/* 오늘 목표 segmented_control 한 줄 균등 분배 */
+div[data-testid="stSegmentedControl"] [role="group"]{
+    display: flex !important;
+    width: 100% !important;
+}
+
+div[data-testid="stSegmentedControl"] button{
+    flex: 1 1 0 !important;      /* ✅ 핵심: 동일 비율 */
+    min-width: 0 !important;
+    text-align: center !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
 # ✅ 1) 목표(세션) 설정값
 if "goal_sessions" not in st.session_state:
     st.session_state.goal_sessions = 1  # 기본 1회(=10문항)
