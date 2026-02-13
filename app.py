@@ -2253,6 +2253,7 @@ def render_home():
     u = st.session_state.get("user")
     email = (getattr(u, "email", None) if u else None) or st.session_state.get("login_email", "")
 
+    # ✅ (1) 타이틀/환영
     st.markdown(
         f"""
 <div class="jp headbar">
@@ -2263,6 +2264,17 @@ def render_home():
         unsafe_allow_html=True,
     )
 
+    # ✅ (2) 오늘의 학습 리포트: 홈에서만 / 타이틀 다음, 오늘의 말 위
+    try:
+        sb_authed = get_authed_sb()
+        user_id = getattr(u, "id", None) if u else None
+        if sb_authed and user_id:
+            render_today_report_db_only(sb_authed, user_id)
+    except Exception:
+        # 리포트 실패해도 홈 화면은 멈추지 않게
+        pass
+
+    # ✅ (3) 오늘의 말
     quotes = [
         "오늘 10문항이면 충분해요.",
         "루틴은 작게, 지속은 길게.",
@@ -2301,6 +2313,7 @@ def render_home():
     with c3:
         st.button("🚪 로그아웃", use_container_width=True,
                   key="btn_home_logout", on_click=nav_logout)
+
 
 # ============================================================
 # ✅ 오늘의 학습 리포트 (DB only / quiz_attempts 기반)
@@ -2515,8 +2528,8 @@ if cached_uid != user_id:
     st.session_state["plan_cached_user_id"] = user_id
 
 # ✅ 로그인 유저 + authed 클라 둘 다 있을 때만 리포트 표시
-if sb_authed and user_id:
-    render_today_report_db_only(sb_authed, user_id)
+# if sb_authed and user_id:
+#    render_today_report_db_only(sb_authed, user_id)
 
 # ✅ pos_group 기반 available_types 적용
 try:
