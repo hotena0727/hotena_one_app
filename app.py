@@ -901,15 +901,11 @@ def get_user_plan() -> str:
     return plan
 
 def is_pro() -> bool:
-    p = st.session_state.get("profile") or {}
-
-    # profiles.plan 컬럼을 기준으로 판단
-    plan = str(p.get("plan", "")).strip().lower()
-    if plan == "pro":
-        return True
-
-    # (옵션) 이전 호환: is_pro를 쓰던 시절 데이터도 인정
-    return bool(p.get("is_pro", False))
+    # ✅ 단일 기준: profiles.plan == "pro"
+    try:
+        return (get_user_plan() == "pro")
+    except Exception:
+        return False
     
 def build_word_results_bulk_payload(quiz: list[dict], answers: list, quiz_type: str, pos: str) -> list[dict]:
     items = []
