@@ -2800,7 +2800,7 @@ if "goal_sessions" not in st.session_state:
 
 goal_sessions = st.segmented_control(
     label="오늘 목표",
-    options=[1, 2, 3, 4],
+    options=[1, 2, 3, 4, 5, 6],
     format_func=lambda x: f"{x}회(= {x*10}문항)",
     default=st.session_state.goal_sessions,
     key="goal_sessions",
