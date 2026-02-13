@@ -2515,11 +2515,8 @@ if cached_uid != user_id:
     st.session_state["plan_cached_user_id"] = user_id
 
 # ✅ 로그인 유저 + authed 클라 둘 다 있을 때만 리포트 표시
-if st.session_state.page == "home":
-    if sb_authed and user_id:
-        render_today_report_db_only(sb_authed, user_id)
-    render_home()
-    st.stop()
+if sb_authed and user_id:
+    render_today_report_db_only(sb_authed, user_id)
 
 # ✅ pos_group 기반 available_types 적용
 try:
